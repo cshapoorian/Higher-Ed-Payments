@@ -28,8 +28,18 @@ export interface HyperInstance {
   }) => Promise<{ status: string; error?: { message: string } }>;
 }
 
+export interface HyperElement {
+  mount: (selector: string) => void;
+  // Mirrors Stripe.js Elements' change event — fires with `complete: true`
+  // once the field(s) hold a plausibly submittable value. Gates the Confirm
+  // button so we never call confirmPayment (and thus never send a card/bank
+  // credential to Hyperswitch) before the student has actually entered one.
+  // TODO: unverified live — same caveat as the rest of this file.
+  on: (event: "change" | "ready", callback: (event: { complete?: boolean }) => void) => void;
+}
+
 export interface HyperElements {
-  create: (type: "payment" | "card") => { mount: (selector: string) => void };
+  create: (type: "payment" | "card") => HyperElement;
 }
 
 let loadPromise: Promise<HyperInstance> | null = null;
