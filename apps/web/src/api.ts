@@ -4,6 +4,7 @@ import type {
   CreatePaymentIntentResponse,
   GetOrderResponse,
   GetPaymentMethodsResponse,
+  PaymentCapabilitiesResponse,
   PriceCartRequest,
   PriceCartResponse,
   QuotePaymentRequest,
@@ -32,7 +33,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
+  if (!res.ok) {
+    // The API answers expected refusals (e.g. 409 invoice_already_paid,
+    // payment_in_progress) with a message written for the student. Prefer it
+    // over the status code, which is what the payment page would otherwise
+    // show them verbatim.
+    const message = await res
+      .json()
+      .then((body: { message?: string }) => body?.message)
+      .catch(() => undefined);
+    throw new Error(message || `${path} failed: ${res.status}`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -60,6 +71,14 @@ export function quotePayment(body: QuotePaymentRequest): Promise<QuotePaymentRes
 
 export function getOrder(orderId: string): Promise<GetOrderResponse> {
   return request(`/orders/${orderId}`);
+}
+
+// Which methods this deployment's Hyperswitch account can actually charge.
+// The payment step asks once on load instead of hardcoding a flag, so ACH
+// turns itself on the moment a bank-debit connector is added to the account —
+// no code change, no stale constant. See apps/api/src/services/achAvailability.ts.
+export function getPaymentCapabilities(): Promise<PaymentCapabilitiesResponse> {
+  return request("/payment-capabilities");
 }
 
 export function getPaymentMethods(studentId: string): Promise<GetPaymentMethodsResponse> {

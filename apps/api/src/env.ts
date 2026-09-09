@@ -20,6 +20,13 @@ export const env = {
     baseUrl: required("HYPERSWITCH_BASE_URL", "https://sandbox.hyperswitch.io"),
     secretKey: process.env.HYPERSWITCH_SECRET_KEY ?? "",
     publishableKey: process.env.HYPERSWITCH_PUBLISHABLE_KEY ?? "",
+    // Needed only to read the merchant's connector configuration, which is
+    // what GET /api/payment-capabilities uses to decide whether ACH can
+    // actually be charged (services/achAvailability.ts). Not a secret — it's
+    // the merchant_id echoed on every payment response. Left unset, the
+    // capabilities check degrades to "unknown" and the storefront falls back
+    // to letting Hyperswitch reject the confirm.
+    merchantId: process.env.HYPERSWITCH_MERCHANT_ID ?? "",
     // Dashboard: Developer → Payment Settings → Webhooks. Signs outgoing
     // webhooks; see verifyWebhookSignature in services/hyperswitch.ts.
     paymentResponseHashKey: process.env.HYPERSWITCH_PAYMENT_RESPONSE_HASH_KEY ?? "",

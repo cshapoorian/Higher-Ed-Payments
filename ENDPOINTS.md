@@ -161,8 +161,9 @@ succeeded).
 | `GET /api/me` | Returns the single seeded student/term (no auth yet) | Working, stand-in — see "Needed" below |
 | `GET /api/course-sections` | Course catalog for the Courses step | Working |
 | `POST /api/cart/price` | Prices selected sections into an itemized invoice | Working |
+| `GET /api/payment-capabilities` | Whether ACH can actually be charged on this Hyperswitch account, with an operator-facing diagnosis | Working — verified live 2026-09-09 on both negative branches (IR_39 and IR_19). Cross-references `GET /account/{merchant_id}/connectors` against `GET /feature_matrix` |
 | `POST /api/orders/quote` | Fee-differentiated quote for a payment method | Working — own logic, no Hyperswitch call |
-| `POST /api/orders/payment-intent` | Creates the Order + Hyperswitch Payment Intent, with surcharge_details and a provisioned customer; 409s if the invoice is already paid | Working for card — verified live 2026-09-09 in the browser and over REST. ACH blocked by merchant account config; the installment plan creates its intent for the full balance, not the first installment. See `TEST_CREDENTIALS.md` |
+| `POST /api/orders/payment-intent` | Creates the Order + Hyperswitch Payment Intent, with surcharge_details and a provisioned customer; 409s if the invoice is already paid | Working for card — verified live 2026-09-09 in the browser and over REST. ACH is implemented end to end but unchargeable on this account — its connectors are dummy connectors that don't implement `bank_debit` at all (see `TEST_CREDENTIALS.md`); the installment plan creates its intent for the full balance, not the first installment |
 | `GET /api/orders/:id` | Order status + receipt URL; force_syncs Hyperswitch while non-terminal | Working |
 | `GET /api/orders/:id/receipt` | Streams an itemized PDF receipt, rendered on demand | Working |
 | `POST /api/customers` | Idempotently provisions a Hyperswitch Customer for a student | Working |
@@ -204,10 +205,15 @@ concrete endpoints someone would implement next rather than left implicit.
   installment plan, so an ordinary card payment never saves a payment method
   and `GET /api/payment-methods` stays empty. This is what has to change
   before the saved-card option can ever appear.
-- **3DS / `requires_customer_action`** — `services/orderStatus.ts` maps
-  anything that isn't `succeeded` or `processing` to `failed`, so a card
-  requiring a 3DS challenge would be reported to the student as a decline.
-  Needs a non-terminal branch plus a test card that forces the state.
+- **3DS challenge handling** — `services/orderStatus.ts` no longer maps
+  `requires_customer_action` to `failed` (it, `requires_payment_method` and
+  `requires_confirmation` are now non-terminal, leaving the order where it
+  is), so a card mid-3DS is no longer reported to the student as a decline.
+  What's still missing is the other half: nothing surfaces or completes the
+  challenge, so such a payment would sit at `payment_pending` until the poll
+  times out. Needs the redirect/next_action flow plus a test card that forces
+  the state. The same fix is what keeps a live ACH debit awaiting mandate
+  authorization from being recorded as a failure.
 
 ### Deferred by design
 
@@ -241,9 +247,13 @@ concrete endpoints someone would implement next rather than left implicit.
    confirm a `payment_id` with `succeeded`/`requires_capture` comes back~~ —
    done 2026-09-09, both via direct REST call and through the real browser
    `Hyper()` widget; see `TEST_CREDENTIALS.md`. Still needed: one 3DS test
-   card that forces `requires_customer_action`, which currently maps to
-   `failed`. Also: ACH has no eligible connector on this merchant account at
-   all — needs a dashboard fix before it can be tested end to end.
+   card that forces `requires_customer_action` — it is no longer recorded as
+   a failure, but nothing surfaces the challenge yet. ACH is finished in code
+   and its two failure paths are verified, but no connector on this account
+   implements `bank_debit` at all (they are dummy connectors, not a missing
+   toggle), so the success path needs a real processor sandbox — Stripe,
+   Adyen, GoCardless, Dwolla, Stax, Payload or Wells Fargo — added as a
+   connector. See `TEST_CREDENTIALS.md` for the evidence.
 2. Trigger a real webhook delivery from the sandbox dashboard against the
    deployed `/api/webhooks/hyperswitch` URL, log the raw body and
    `x-webhook-signature-512` header pre-parse, and diff against the computed

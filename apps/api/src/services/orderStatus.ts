@@ -3,13 +3,38 @@ import { db } from "../db.js";
 import { generateReceipt } from "./receipt.js";
 
 interface StatusMapping {
-  order: Order["status"];
+  /**
+   * null means "this Hyperswitch status says nothing terminal about the
+   * order — leave it where it is". Distinguishing that from "failed" matters:
+   * an intent that has been created but not yet confirmed, and an ACH debit
+   * waiting on the account holder to authorize a mandate, are both perfectly
+   * healthy states that used to be recorded as failures.
+   */
+  order: Order["status"] | null;
   payment: PaymentStatus;
 }
 
+// Hyperswitch's payment statuses, sorted into what each one means for us.
+// Anything absent is treated as a failure, which is the safe default for an
+// unrecognized terminal state — but the in-flight statuses below must be
+// listed explicitly, because defaulting *them* to failed marks live payments
+// dead. That is not hypothetical for ACH: a bank debit sits in
+// requires_customer_action while the account holder authorizes the mandate,
+// and can sit in processing for days afterwards while it clears.
 const STATUS_MAP: Record<string, StatusMapping> = {
+  // Settled.
   succeeded: { order: "paid", payment: "succeeded" },
+  partially_captured: { order: "paid", payment: "succeeded" },
+  // Money is moving but hasn't landed. The normal resting state of an ACH
+  // debit between submission and settlement.
   processing: { order: "processing", payment: "processing" },
+  requires_capture: { order: "processing", payment: "processing" },
+  partially_captured_and_capturable: { order: "processing", payment: "processing" },
+  // Nothing has been attempted or the payer still has a step to take. The
+  // order stays exactly where it is — usually payment_pending.
+  requires_payment_method: { order: null, payment: "requires_confirmation" },
+  requires_confirmation: { order: null, payment: "requires_confirmation" },
+  requires_customer_action: { order: null, payment: "requires_confirmation" },
 };
 
 /** Exported for callers (installments.ts) that record a Payment row directly from a synchronous Hyperswitch response instead of going through applyHyperswitchStatus. */
@@ -61,6 +86,12 @@ export async function applyHyperswitchStatus(
   await db.payment.update({ where: { id: payment.id }, data: { status: paymentStatus } });
 
   const order = await db.order.findUniqueOrThrow({ where: { id: payment.orderId } });
+
+  // Non-terminal status: the Payment row above now reflects it, but the order
+  // keeps whatever it had. Returning early rather than writing null into the
+  // status column is the point — see StatusMapping.order.
+  if (nextStatus === null) return toOrderDto(order);
+
   const isPrimaryPayment = order.paymentIntentId === paymentId;
 
   // A later installment (MIT) charge succeeding/failing doesn't change the

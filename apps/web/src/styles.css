@@ -863,10 +863,32 @@ button {
   font-size: 0.95em;
 }
 
+/* Operator-facing half of a capability notice — the exact configuration gap
+   and the Hyperswitch error a confirm would return. Set apart from the
+   student-facing sentence above it so it reads as diagnostics, not as copy. */
+.notice-detail {
+  display: block;
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  color: var(--text-muted);
+}
+
+.ach-timing-note {
+  margin-top: var(--space-4);
+}
+
 .notice-warn {
   background: var(--accent-soft);
   color: var(--text);
   border: 1px solid var(--accent);
+}
+
+/* ACH's terminal state: submitted, not settled. Same card, deliberately not
+   the success green — the money has not moved yet. */
+.submitted-check {
+  background: var(--brand-soft);
+  color: var(--brand-strong);
 }
 
 /* Terminal success state — replaces the chooser and entry forms entirely. */
@@ -1113,6 +1135,13 @@ button {
 .status-banner.success {
   background: var(--success-soft);
   color: var(--success);
+}
+
+.status-banner-hint {
+  display: block;
+  margin-top: var(--space-2);
+  font-weight: 400;
+  opacity: 0.85;
 }
 
 .status-banner a {

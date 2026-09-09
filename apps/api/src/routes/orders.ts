@@ -67,6 +67,22 @@ ordersRouter.post(
     return;
   }
 
+  // Same protection, one state earlier. A payment that has been confirmed but
+  // hasn't settled must also block a second intent, and ACH is why this
+  // matters: a card resolves in-session, so the window between confirm and
+  // terminal status was seconds, but a bank debit sits in `processing` for
+  // days. Without this a student who reopened the payment step mid-transfer
+  // could authorize a second debit for the same invoice and be charged twice.
+  if (existing?.status === "processing") {
+    res.status(409).json({
+      error: "payment_in_progress",
+      message:
+        "A payment for this invoice is already in progress. Bank transfers take 3–5 business days to clear — " +
+        "there's no need to pay again.",
+    });
+    return;
+  }
+
   const quote = quoteForMethod(invoice.balanceDueCents, method);
 
   // A Hyperswitch Customer must exist before a payment can be tokenized for
@@ -135,6 +151,11 @@ ordersRouter.post(
     order,
     clientSecret: intent.client_secret,
     publishableKey: env.hyperswitch.publishableKey,
+    // The browser confirms ACH straight against this origin with the
+    // publishable key above — bank details never transit this API. Sending
+    // the origin from here rather than a second VITE_ var keeps it in lockstep
+    // with the key. See apps/web/src/lib/hyperswitch.ts (confirmAchPayment).
+    hyperswitchBaseUrl: env.hyperswitch.baseUrl,
     quote,
   };
   res.json(response);

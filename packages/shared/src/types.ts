@@ -112,6 +112,13 @@ export interface CreatePaymentIntentResponse {
   order: Order;
   clientSecret: string;
   publishableKey: string;
+  // Hyperswitch's REST origin, handed to the browser so the ACH confirm can
+  // be POSTed straight to Hyperswitch with the publishable key. It comes
+  // from the API's own env rather than a second VITE_ var so the base URL
+  // and the publishable key above can never drift apart between the two
+  // apps. Card still confirms through the hosted-fields SDK, which takes
+  // this origin from the loader script instead.
+  hyperswitchBaseUrl: string;
   quote: PaymentMethodQuote;
 }
 
@@ -146,6 +153,25 @@ export interface QuotePaymentResponse {
 export interface GetOrderResponse {
   order: Order;
   receiptUrl: string | null;
+}
+
+// --- Payment-method capabilities (see services/achAvailability.ts) ---
+// Whether a method can actually be *charged* on the merchant profile this
+// API is pointed at, as opposed to merely being renderable. ACH is the one
+// method whose answer is "no" on the current sandbox account, and that is a
+// property of the account, not of this code — so the storefront asks rather
+// than hardcoding a flag it would have to remember to flip.
+
+export interface PaymentMethodAvailability {
+  available: boolean;
+  /** Student-facing sentence. Null when available. */
+  reason: string | null;
+  /** Operator-facing detail: what is wired up vs. what would need to be. */
+  detail: string | null;
+}
+
+export interface PaymentCapabilitiesResponse {
+  ach: PaymentMethodAvailability;
 }
 
 // --- Hyperswitch customer + saved payment methods (architecture §4) ---

@@ -164,6 +164,71 @@ export async function getPaymentStatus(paymentId: string): Promise<HyperswitchPa
   );
 }
 
+export interface HyperswitchPaymentMethodTypeConfig {
+  payment_method_type: string;
+}
+
+export interface HyperswitchPaymentMethodConfig {
+  payment_method: string;
+  payment_method_types: HyperswitchPaymentMethodTypeConfig[] | null;
+}
+
+export interface HyperswitchConnector {
+  connector_name: string;
+  merchant_connector_id: string;
+  profile_id: string | null;
+  status: string | null;
+  disabled: boolean | null;
+  payment_methods_enabled: HyperswitchPaymentMethodConfig[] | null;
+}
+
+/**
+ * GET /account/{merchant_id}/connectors — every connector wired to this
+ * merchant, with the payment methods each one is configured to accept.
+ *
+ * This answers half of "can ACH actually be charged here?": a method that no
+ * connector has enabled is not chargeable, and Hyperswitch reports that at
+ * confirm time as IR_39 ("No eligible connector was found"). The other half
+ * is whether the connector's *integration* supports the method at all —
+ * see getConnectorFeatureMatrix below. Verified live 2026-09-09 with the
+ * merchant api-key (no admin key needed for the read).
+ */
+export async function listConnectors(): Promise<HyperswitchConnector[]> {
+  const merchantId = env.hyperswitch.merchantId;
+  if (!merchantId) throw new Error("HYPERSWITCH_MERCHANT_ID is not set");
+  return hyperswitchFetch<HyperswitchConnector[]>(`/account/${merchantId}/connectors`, {
+    method: "GET",
+  });
+}
+
+export interface FeatureMatrixConnector {
+  name: string;
+  integration_status: string | null;
+  supported_payment_methods:
+    | Array<{ payment_method: string; payment_method_type: string }>
+    | null;
+}
+
+/**
+ * GET /feature_matrix — Hyperswitch's own catalogue of which connector
+ * integrations support which payment methods, independent of this merchant's
+ * configuration.
+ *
+ * This exists because enabling a payment method on a connector that cannot
+ * do it *succeeds* at the config layer and only fails at confirm time, with
+ * IR_19 ("The payment method bank_debit is not supported by <connector>").
+ * Verified live 2026-09-09: enabling bank_debit/ach on all four dummy
+ * connectors on this sandbox profile returned 200, then every confirm
+ * returned IR_19. Cross-checking against this endpoint catches that
+ * misconfiguration before a student ever sees it.
+ */
+export async function getConnectorFeatureMatrix(): Promise<FeatureMatrixConnector[]> {
+  const res = await hyperswitchFetch<{ connectors: FeatureMatrixConnector[] }>("/feature_matrix", {
+    method: "GET",
+  });
+  return res.connectors ?? [];
+}
+
 // Note: confirming a Payment Intent (POST /payments/{payment_id}/confirm) is
 // deliberately NOT wrapped here — it's called by Hyperswitch's client SDK
 // from apps/web/src/lib/hyperswitch.ts using the publishable key, so that
