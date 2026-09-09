@@ -84,13 +84,15 @@ model Payment {
 }
 
 model InstallmentPlan {
-  id                String @id @default(cuid())
-  orderId           String @unique
-  mandateId         String
-  installmentCount  Int
-  intervalDays      Int
+  id               String  @id @default(cuid())
+  orderId          String  @unique
+  // Null until the first (CIT) charge succeeds and Hyperswitch's webhook
+  // reports the mandate it created — see webhooks.ts.
+  mandateId        String?
+  installmentCount Int
+  intervalDays     Int
   // JSON-encoded InstallmentScheduleEntry[] (see packages/shared).
-  schedule          String
+  schedule         String
 
   order Order @relation(fields: [orderId], references: [id])
 }

@@ -4,6 +4,8 @@ import type {
   CreatePaymentIntentResponse,
   PriceCartRequest,
   PriceCartResponse,
+  QuotePaymentRequest,
+  QuotePaymentResponse,
   Student,
   Term,
 } from "@juspay-takehome/shared";
@@ -35,4 +37,8 @@ export function createPaymentIntent(
   body: CreatePaymentIntentRequest,
 ): Promise<CreatePaymentIntentResponse> {
   return request("/orders/payment-intent", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function quotePayment(body: QuotePaymentRequest): Promise<QuotePaymentResponse> {
+  return request("/orders/quote", { method: "POST", body: JSON.stringify(body) });
 }

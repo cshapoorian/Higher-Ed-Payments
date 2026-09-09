@@ -20,20 +20,51 @@ webhooksRouter.post("/hyperswitch", async (req, res) => {
   }
 
   const event = JSON.parse(rawBody.toString("utf8")) as {
-    content: { object: { payment_id: string; status: string } };
+    content: { object: { payment_id: string; status: string; mandate_id?: string } };
   };
-  const { payment_id: paymentIntentId, status } = event.content.object;
+  const { payment_id: paymentIntentId, status, mandate_id: mandateId } = event.content.object;
 
   const record = await db.order.findFirst({ where: { paymentIntentId } });
   if (!record) return res.status(404).json({ error: "order not found" });
 
   const nextStatus: Order["status"] =
     status === "succeeded" ? "paid" : status === "processing" ? "processing" : "failed";
+  const paymentStatus = status === "succeeded" ? "succeeded" : status === "processing" ? "processing" : "failed";
 
   const updated = await db.order.update({
     where: { id: record.id },
     data: { status: nextStatus },
   });
+
+  await db.payment.updateMany({
+    where: { orderId: record.id, hyperswitchPaymentId: paymentIntentId },
+    data: { status: paymentStatus },
+  });
+
+  // The first installment charge doubles as a CIT that saves a mandate for
+  // the remaining three MIT charges — see architecture §4. Record the
+  // mandate once Hyperswitch reports it, and mark this schedule entry paid.
+  if (nextStatus === "paid" && mandateId) {
+    const plan = await db.installmentPlan.findUnique({ where: { orderId: record.id } });
+    if (plan) {
+      const schedule = JSON.parse(plan.schedule) as Array<{
+        sequence: number;
+        dueDate: string;
+        amountCents: number;
+        paymentId: string | null;
+      }>;
+      const [first, ...rest] = schedule;
+      if (first && !first.paymentId) {
+        await db.installmentPlan.update({
+          where: { orderId: record.id },
+          data: {
+            mandateId,
+            schedule: JSON.stringify([{ ...first, paymentId: paymentIntentId }, ...rest]),
+          },
+        });
+      }
+    }
+  }
 
   if (nextStatus === "paid") {
     const { pdfUrl } = await generateReceipt({

@@ -112,4 +112,28 @@ export interface CreatePaymentIntentResponse {
   order: Order;
   clientSecret: string;
   publishableKey: string;
+  quote: PaymentMethodQuote;
+}
+
+// --- Fee-differentiated payment methods (architecture §2, §4) ---
+// ACH is free; card and card-financed installments carry a surcharge. The
+// server computes this — the client only ever renders what quotePayment
+// returns, never derives or overrides a total itself.
+
+export interface PaymentMethodQuote {
+  method: PaymentMethodType;
+  balanceDueCents: number;
+  feeCents: number;
+  feeLabel: string;
+  totalCents: number; // balanceDueCents + feeCents — what's actually charged
+  installmentSchedule?: InstallmentScheduleEntry[]; // present only for installment_plan
+}
+
+export interface QuotePaymentRequest {
+  invoiceId: string;
+  method: PaymentMethodType;
+}
+
+export interface QuotePaymentResponse {
+  quote: PaymentMethodQuote;
 }
