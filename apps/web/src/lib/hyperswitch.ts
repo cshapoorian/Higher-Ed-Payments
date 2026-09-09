@@ -3,6 +3,12 @@
 // card data off the storefront API entirely, so PCI scope stays at SAQ-A.
 // See architecture §4 ("Hosted card fields, not raw HTML inputs").
 //
+// confirmPayment() below calls Hyperswitch's POST /payments/{payment_id}/confirm
+// under the hood, authenticated with the publishableKey passed into
+// loadHyper — never the secret key, which lives only in apps/api and must
+// never reach this file. It attempts authorization with the processor and
+// lands on succeeded, requires_capture, or failed.
+//
 // TODO: verify the exact global name and Elements API against the current
 // Hyperswitch SDK docs once a sandbox publishable key is provisioned — this
 // scaffolds the Stripe.js-shaped integration pattern, unverified live.
