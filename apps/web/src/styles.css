@@ -796,11 +796,123 @@ button {
 }
 
 .hosted-field-shell {
-  padding: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg);
+  position: relative;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   min-height: 3rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.hosted-field-shell:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+/* Until the hosted iframe paints, the shell would otherwise be an empty grey
+   box with no explanation — the single most confusing thing on the page. */
+.hosted-field-skeleton {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border-radius: inherit;
+  background: var(--bg);
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+
+.field-label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.field-error {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--danger);
+}
+
+.ach-numbers {
+  margin-top: var(--space-4);
+}
+
+.notice {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.notice strong {
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.notice code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
+.notice-warn {
+  background: var(--accent-soft);
+  color: var(--text);
+  border: 1px solid var(--accent);
+}
+
+/* Terminal success state — replaces the chooser and entry forms entirely. */
+.paid-card {
+  margin-top: var(--space-5);
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.paid-check {
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto var(--space-4);
+  border-radius: 50%;
+  background: var(--success-soft);
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xl);
+  font-weight: 700;
+}
+
+.paid-card h2 {
+  font-size: var(--text-xl);
+}
+
+.paid-amount {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-strong);
+}
+
+.paid-sub {
+  margin: var(--space-2) 0 var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.paid-note {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
 }
 
 .form-grid {
@@ -929,6 +1041,14 @@ button {
   margin-top: var(--space-4);
 }
 
+/* The hosted iframe sizes itself to the node it mounted into; without this it
+   keeps its measured width and the CVC ends up clipped off-screen. */
+#hyper-payment-element,
+#hyper-payment-element iframe {
+  width: 100% !important;
+  max-width: 100%;
+}
+
 @media (max-width: 640px) {
   .form-grid,
   .bank-grid {
@@ -937,6 +1057,38 @@ button {
 
   .form-field.span-2 {
     grid-column: span 1;
+  }
+
+  .pay-panel {
+    padding: var(--space-3);
+  }
+
+  /* The card iframe lays number + MM/YY + CVC out on one row and needs ~304px
+     of internal width; anything less clips the CVC clean off the right edge.
+     Drop the shell's side padding (the iframe brings its own) to hand that
+     width back, and keep overflow-x as a safety net on very narrow phones so
+     the field can never become unreachable. */
+  .hosted-field-shell {
+    padding: var(--space-1) 0;
+    overflow-x: auto;
+  }
+
+  /* Stack name/hint above the amount instead of squeezing them side by side. */
+  .method-card-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .method-card-amount {
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .installment-breakdown {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 

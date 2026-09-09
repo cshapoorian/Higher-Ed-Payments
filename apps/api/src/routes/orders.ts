@@ -51,6 +51,22 @@ ordersRouter.post(
   const { invoiceId, method } = req.body as CreatePaymentIntentRequest;
 
   const invoice = await db.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+
+  // Refuse to open a second Payment Intent against an invoice that is already
+  // settled. Without this the upsert below would reset a `paid` order back to
+  // `payment_pending` and hand back a fresh client secret, so a student who
+  // navigated back after paying could be charged twice and the paid record
+  // would be overwritten. The webhook is what sets `paid`, so this is the
+  // authoritative check.
+  const existing = await db.order.findUnique({ where: { invoiceId } });
+  if (existing?.status === "paid") {
+    res.status(409).json({
+      error: "invoice_already_paid",
+      message: "This invoice has already been paid. Refresh to see the receipt.",
+    });
+    return;
+  }
+
   const quote = quoteForMethod(invoice.balanceDueCents, method);
 
   // A Hyperswitch Customer must exist before a payment can be tokenized for

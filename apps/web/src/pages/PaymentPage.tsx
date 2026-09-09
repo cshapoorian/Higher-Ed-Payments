@@ -40,12 +40,10 @@ function savedCardMethod(saved: SavedPaymentMethod): MethodMeta {
   };
 }
 
-// Quick-select tiles for the ACH "link your bank" panel. Purely a UI
-// affordance to make bank selection feel like the Plaid-style pickers modern
-// checkouts use — no OAuth bank linking is wired up, so every choice (including
-// "Other bank") converges on the same manual routing/account entry below,
-// which is still collected through Hyperswitch's hosted field, never as a
-// raw input we touch. See lib/hyperswitch.ts and architecture §4.
+// Quick-select tiles for the ACH "link your bank" panel. These are a
+// progressive-disclosure affordance, NOT an OAuth/Plaid bank link — picking
+// one simply reveals the manual routing/account form, and the copy says so
+// rather than implying a credential handoff that doesn't exist.
 interface BankOption {
   id: string;
   name: string;
@@ -85,9 +83,20 @@ interface BankDetailsState {
   bankId: string | null;
   accountHolderName: string;
   accountType: "checking" | "savings";
+  routingNumber: string;
+  accountNumber: string;
 }
 
-const EMPTY_BANK: BankDetailsState = { bankId: null, accountHolderName: "", accountType: "checking" };
+const EMPTY_BANK: BankDetailsState = {
+  bankId: null,
+  accountHolderName: "",
+  accountType: "checking",
+  routingNumber: "",
+  accountNumber: "",
+};
+
+// US ABA routing numbers are exactly 9 digits; account numbers run 4–17.
+const ROUTING_DIGITS = 9;
 
 function formatUsd(cents: number): string {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -113,14 +122,31 @@ export function PaymentPage() {
   const [savedMethod, setSavedMethod] = useState<SavedPaymentMethod | null>(null);
   const [term, setTerm] = useState<Term | null>(null);
   const [student, setStudent] = useState<Student | null>(null);
-  // Only card_new and ach mount a field-collection widget below; both start
-  // false so Confirm stays disabled until the student has actually entered
-  // something. card_saved/installment_plan never gate on this.
-  const [fieldsComplete, setFieldsComplete] = useState(false);
+  // The hosted card iframe reports "ready" when its inputs have painted; it
+  // never reports per-keystroke validity (see lib/hyperswitch.ts). So this
+  // gates on "the field exists and is usable", not "the card is complete" —
+  // Hyperswitch itself rejects an incomplete card at confirm, and we surface
+  // that message. Gating on completeness instead left Pay disabled forever.
+  const [elementReady, setElementReady] = useState(false);
+  const [elementFailed, setElementFailed] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [billing, setBilling] = useState<BillingAddressState>(EMPTY_BILLING);
   const [bank, setBank] = useState<BankDetailsState>(EMPTY_BANK);
   const cardMountRef = useRef<HTMLDivElement>(null);
-  const needsFieldEntry = selectedMethod === "card_new" || selectedMethod === "ach";
+  // Every card-funded method needs the hosted card iframe, not just "New
+  // card". The installment plan is merchant-financed *on a card* (the intent
+  // is created with setup_future_usage=off_session so later instalments can
+  // be charged against the stored mandate), and "saved card" still confirms
+  // through the same hosted flow today rather than a true one-click token
+  // charge. Leaving them without a card field enabled Pay with no payment
+  // method attached, which hung on "Processing…" until the poll timed out.
+  const needsHostedCard =
+    selectedMethod === "card_new" || selectedMethod === "installment_plan" || selectedMethod === "card_saved";
+  // ACH is presentable but not chargeable on this sandbox account — no
+  // bank-debit connector is enabled, so confirm returns IR_39 no matter what
+  // account number is entered (verified; see TEST_CREDENTIALS.md). Flip this
+  // to false once a bank-debit connector is turned on in the dashboard.
+  const achUnavailable = selectedMethod === "ach";
 
   const METHODS = useMemo<MethodMeta[]>(
     () => (savedMethod ? [savedCardMethod(savedMethod), ...ALWAYS_AVAILABLE_METHODS] : ALWAYS_AVAILABLE_METHODS),
@@ -152,16 +178,30 @@ export function PaymentPage() {
   }, [invoice, METHODS]);
 
   useEffect(() => {
-    setFieldsComplete(false);
-    if (!needsFieldEntry || !elements || !cardMountRef.current) return;
-    // ach mounts the general-purpose "payment" element (bank-account fields);
-    // card_new mounts the dedicated "card" element. Neither collects anything
-    // until the student types into it, and Confirm stays disabled until the
-    // "change" event below reports complete: true.
-    const el = elements.create(selectedMethod === "card_new" ? "card" : "payment");
+    setElementReady(false);
+    setElementFailed(false);
+    if (!needsHostedCard || !elements || !cardMountRef.current) return;
+
+    // Only the card element is mounted. ACH deliberately does NOT mount
+    // elements.create("payment"): on this merchant account that unified
+    // element renders a *card* form (verified live — no bank-debit connector
+    // is enabled, so Hyperswitch falls back to card), which under a "Link
+    // your bank" heading would invite a student to type card data into what
+    // they believe is a bank transfer. See TEST_CREDENTIALS.md.
+    const el = elements.create("card");
     el.mount("#hyper-payment-element");
-    el.on("change", (event) => setFieldsComplete(Boolean(event.complete)));
-  }, [selectedMethod, elements, needsFieldEntry]);
+    el.on("ready", () => setElementReady(true));
+
+    // If "ready" never arrives the iframe is wedged (bad SDK URL, blocked
+    // network, CSP). Say so instead of leaving an inert grey box on screen.
+    const timer = window.setTimeout(() => {
+      setElementReady((ready) => {
+        if (!ready) setElementFailed(true);
+        return ready;
+      });
+    }, 12000);
+    return () => window.clearTimeout(timer);
+  }, [selectedMethod, elements, needsHostedCard]);
 
   if (!invoice) {
     navigate("/review");
@@ -175,6 +215,7 @@ export function PaymentPage() {
     setHyperInstance(null);
     setReceiptUrl(null);
     setBank(EMPTY_BANK);
+    setErrorMessage(null);
     setStatus("loading");
     try {
       const { order, clientSecret, publishableKey } = await createPaymentIntent({
@@ -189,14 +230,15 @@ export function PaymentPage() {
       setStatus("idle");
     } catch (err) {
       console.error(err);
+      setErrorMessage(err instanceof Error ? err.message : null);
       setStatus("error");
     }
   }
 
   async function confirm() {
     if (!elements || !hyperInstance) return;
-    if (needsFieldEntry && !fieldsComplete) return;
     if (!extraFieldsValid) return;
+    setErrorMessage(null);
     setStatus("processing");
     try {
       const billingDetails =
@@ -232,6 +274,11 @@ export function PaymentPage() {
       await pollOrderStatus();
     } catch (err) {
       console.error(err);
+      // Show what Hyperswitch actually said ("Your card number is incomplete",
+      // "Card declined", …). A blanket "Payment failed" gives the student
+      // nothing to act on, and an incomplete card is the most likely cause
+      // now that the Pay button no longer waits on a completeness signal.
+      setErrorMessage(err instanceof Error ? err.message : null);
       setStatus("error");
     }
   }
@@ -269,9 +316,22 @@ export function PaymentPage() {
     billing.city.trim() !== "" &&
     billing.state.trim() !== "" &&
     billing.zip.trim() !== "";
-  const bankValid = bank.accountHolderName.trim() !== "";
-  const extraFieldsValid =
-    selectedMethod === "card_new" ? billingValid : selectedMethod === "ach" ? bankValid : true;
+  const bankValid =
+    bank.accountHolderName.trim() !== "" &&
+    bank.routingNumber.length === ROUTING_DIGITS &&
+    bank.accountNumber.length >= 4;
+  const extraFieldsValid = needsHostedCard ? billingValid : selectedMethod === "ach" ? bankValid : true;
+
+  // Pay is blocked only by things we can actually observe: the intent/SDK
+  // still loading, our own address/bank fields being incomplete, the hosted
+  // card iframe not having painted, or ACH having no connector behind it.
+  const payDisabled =
+    status !== "idle" ||
+    !elements ||
+    !hyperInstance ||
+    !extraFieldsValid ||
+    (needsHostedCard && (!elementReady || elementFailed)) ||
+    achUnavailable;
 
   function renderMethodCard(m: MethodMeta) {
     const quote = quotes[m.type];
@@ -323,9 +383,15 @@ export function PaymentPage() {
       <div className="page-head">
         <span className="eyebrow">Step 3 of 3</span>
         <h1>Payment</h1>
-        <p>ACH is free. Card payments — including the installment plan — carry a processing fee, shown up front.</p>
+        {status !== "paid" && (
+          <p>ACH is free. Card payments — including the installment plan — carry a processing fee, shown up front.</p>
+        )}
       </div>
 
+      {/* Hidden once paid: a "Balance due $1,550" block sitting above a
+          "Payment received" card reads as though the payment didn't land. */}
+      {status !== "paid" && (
+        <>
       <div className="invoice-eyebrow">
         Invoice — {term ? term.label.toUpperCase() : ""} · #{invoiceNumber}
       </div>
@@ -356,10 +422,15 @@ export function PaymentPage() {
         <span className="badge-pill">FERPA-safe</span>
       </div>
 
+      {/* Once the order is paid, the chooser and the entry forms are no longer
+          actionable — leaving a filled-in card form on screen under a one-line
+          banner reads as "did that go through?". Collapse to a receipt. */}
       <div className="method-section-label">Payment method</div>
       <div className="method-list">{METHODS.map(renderMethodCard)}</div>
+        </>
+      )}
 
-      {selectedMethod === "card_new" && (
+      {needsHostedCard && status !== "paid" && (
         <div className="pay-panel">
           <div className="panel-header">
             <h3>Card information</h3>
@@ -370,12 +441,38 @@ export function PaymentPage() {
               <span className="brand-badge">Discover</span>
             </div>
           </div>
+          {/* Truthful copy, not the copy we'd like to be true: the intent is
+              created for quote.totalCents and no mandate is stored, so this
+              charges the whole balance now. Saying "$X today, rest later"
+              here would be a straightforward misrepresentation. */}
+          {selectedMethod === "installment_plan" && selectedQuote?.installmentSchedule && (
+            <div className="notice notice-warn" role="status">
+              <strong>This charges the full {formatUsd(selectedQuote.totalCents)} today.</strong> The schedule above is
+              what a mandate-backed plan would collect, but recurring collection isn't wired up yet — no mandate is
+              stored and payments 2–{selectedQuote.installmentSchedule.length} are never taken. Use “New card” unless
+              you're specifically exercising the plan's pricing.
+            </div>
+          )}
           {/* The hosted element below renders the card number, expiration, and
               CVC inputs itself — none of that ever passes through our JSX or
               our API. See lib/hyperswitch.ts and architecture §4. */}
-          <div className="hosted-field-shell">
+          <label className="field-label" htmlFor="hyper-payment-element">
+            Card number, expiration and CVC
+          </label>
+          <div className={`hosted-field-shell ${elementReady ? "is-ready" : ""}`}>
             <div id="hyper-payment-element" ref={cardMountRef} />
+            {!elementReady && !elementFailed && (
+              <div className="hosted-field-skeleton" aria-live="polite">
+                Loading secure card fields…
+              </div>
+            )}
           </div>
+          {elementFailed && (
+            <p className="field-error" role="alert">
+              Secure card fields couldn't load, so payment can't be taken right now. Check that
+              VITE_HYPERSWITCH_SDK_URL points at a reachable HyperLoader.js, then reload.
+            </p>
+          )}
 
           <h3 className="panel-subheader">Billing address</h3>
           <div className="form-grid">
@@ -453,11 +550,11 @@ export function PaymentPage() {
         </div>
       )}
 
-      {selectedMethod === "ach" && (
+      {selectedMethod === "ach" && status !== "paid" && (
         <div className="pay-panel">
           <h3>Link your bank</h3>
           <p className="panel-hint">
-            Choose your bank to connect it securely, or enter your account and routing number manually below.
+            Pick your bank to prefill the form below, or choose “Other bank” to enter the details yourself.
           </p>
           <div className="bank-grid">
             {BANK_OPTIONS.map((b) => (
@@ -512,36 +609,58 @@ export function PaymentPage() {
             </button>
           </div>
 
-          {/* Routing/account numbers are the sensitive part — those stay in
-              Hyperswitch's hosted element, same boundary as card data. */}
-          <div className="hosted-field-shell">
-            <div id="hyper-payment-element" ref={cardMountRef} />
+          {/* Explicit, labelled inputs. This is bank-account data, not
+              cardholder data — it's outside PCI's SAQ-A scope, and it still
+              goes to Hyperswitch from the browser rather than through our own
+              API. Previously this spot mounted Hyperswitch's unified element,
+              which on this account renders a *card* form; see the mount
+              effect above for why that was removed. */}
+          <div className="form-grid ach-numbers">
+            <label className="form-field">
+              <span>Routing number</span>
+              <input
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={ROUTING_DIGITS}
+                value={bank.routingNumber}
+                onChange={(e) =>
+                  setBank({ ...bank, routingNumber: e.target.value.replace(/\D/g, "").slice(0, ROUTING_DIGITS) })
+                }
+                placeholder="9 digits"
+              />
+            </label>
+            <label className="form-field">
+              <span>Account number</span>
+              <input
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={17}
+                value={bank.accountNumber}
+                onChange={(e) => setBank({ ...bank, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 17) })}
+                placeholder="4–17 digits"
+              />
+            </label>
           </div>
-          <p className="panel-microcopy">
-            🔒 Your routing and account numbers are encrypted and sent directly to Hyperswitch — they never touch our
-            servers.
-          </p>
+
+          <div className="notice notice-warn" role="status">
+            <strong>ACH isn't enabled on this sandbox account yet.</strong> No bank-debit connector is configured for
+            this business profile, so a transfer can't be authorized no matter which account is entered. Enable one in
+            the Hyperswitch dashboard to activate this method — details in <code>TEST_CREDENTIALS.md</code>. Card
+            payments are unaffected.
+          </div>
         </div>
       )}
 
       {selectedMethod && status !== "paid" && (
         <div className="pay-confirm">
-          <button
-            className="btn btn-primary btn-block"
-            disabled={
-              status !== "idle" ||
-              !elements ||
-              !hyperInstance ||
-              (needsFieldEntry && !fieldsComplete) ||
-              !extraFieldsValid
-            }
-            onClick={confirm}
-          >
+          <button className="btn btn-primary btn-block" disabled={payDisabled} onClick={confirm}>
             {status === "processing"
               ? "Processing…"
               : status === "loading"
                 ? "Preparing…"
-                : `Confirm & pay ${selectedQuote ? formatUsd(selectedQuote.totalCents) : ""}`}
+                : achUnavailable
+                  ? "ACH unavailable on this account"
+                  : `Confirm & pay ${selectedQuote ? formatUsd(selectedQuote.totalCents) : ""}`}
           </button>
           <p className="pay-footnote">🔒 Secured by Hyperswitch · Refund & cancellation policy · Itemized PDF receipt</p>
         </div>
@@ -553,15 +672,24 @@ export function PaymentPage() {
         </div>
       )}
       {status === "paid" && (
-        <div className="status-banner success">
-          Payment received.{" "}
+        <div className="card paid-card" role="status">
+          <div className="paid-check" aria-hidden="true">
+            ✓
+          </div>
+          <h2>Payment received</h2>
+          <p className="paid-amount">{formatUsd(selectedQuote?.totalCents ?? invoice!.balanceDueCents)}</p>
+          <p className="paid-sub">
+            Paid to Meridian University · Invoice #{invoiceNumber}
+            {term ? ` · ${term.label}` : ""}
+          </p>
           {receiptUrl ? (
-            <a href={apiUrl(receiptUrl)} target="_blank" rel="noreferrer">
-              View your receipt
+            <a className="btn btn-primary" href={apiUrl(receiptUrl)} target="_blank" rel="noreferrer">
+              View itemized receipt
             </a>
           ) : (
-            "Your receipt is being generated."
+            <p className="paid-sub">Your receipt is being generated…</p>
           )}
+          <p className="paid-note">Keep this receipt for your records — your balance is now settled.</p>
         </div>
       )}
       {status === "timeout" && (
@@ -572,14 +700,25 @@ export function PaymentPage() {
       )}
       {status === "error" && (
         <div className="status-banner error" role="alert">
-          Payment failed — please try again or choose a different method.
+          {errorMessage
+            ? `Payment failed — ${errorMessage}`
+            : "Payment failed — please try again or choose a different method."}
         </div>
       )}
 
       <div className="nav-row">
-        <button className="btn btn-ghost" onClick={() => navigate("/review")}>
-          ← Back to review
-        </button>
+        {status === "paid" ? (
+          // Deliberately not "back to review": that path re-enters the payment
+          // step for an invoice that is already settled. The API now rejects a
+          // second intent (409), but the flow shouldn't invite it either.
+          <button className="btn btn-ghost" onClick={() => navigate("/")}>
+            ← Back to course selection
+          </button>
+        ) : (
+          <button className="btn btn-ghost" disabled={status === "processing"} onClick={() => navigate("/review")}>
+            ← Back to review
+          </button>
+        )}
       </div>
     </div>
   );
