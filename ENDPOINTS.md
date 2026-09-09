@@ -55,8 +55,18 @@ key only**; `apps/api`'s secret key never reaches this file (verified — see
 the comment above `loadHyper` in that file; this is a statement about our own
 code, not something Hyperswitch's docs can confirm).
 
-**Status: unverified live.** Confirmed against the spec, not yet run through
-a real sandbox card.
+**Status: verified live for card, 2026-09-09.** A real payment intent
+created through `POST /api/orders/payment-intent` was confirmed directly
+against `sandbox.hyperswitch.io` with the publishable key + client_secret
+(the same auth the browser SDK uses) — `4242 4242 4242 4242` returns
+`succeeded` against the `fauxpay` test connector, `4000 0000 0000 0002`
+returns `failed`. See `TEST_CREDENTIALS.md`. Still open: whether the actual
+`Hyper()` browser widget (`apps/web/src/lib/hyperswitch.ts`) mounts and
+fires its `change` event the way this file assumes — that needs a real
+click-through, not just the REST call. **ACH cannot succeed on this
+merchant account at all right now** — `GET /account/payment_methods` shows
+no bank_debit-capable connector configured for this profile; see
+`TEST_CREDENTIALS.md` for the exact error and the dashboard fix needed.
 
 ### `GET /api/orders/:id`
 
@@ -150,7 +160,7 @@ succeeded).
 | `GET /api/course-sections` | Course catalog for the Courses step | Working |
 | `POST /api/cart/price` | Prices selected sections into an itemized invoice | Working |
 | `POST /api/orders/quote` | Fee-differentiated quote for a payment method | Working — own logic, no Hyperswitch call |
-| `POST /api/orders/payment-intent` | Creates the Order + Hyperswitch Payment Intent, with surcharge_details and a provisioned customer | Logic verified 2026-09-09; hosted-fields confirmation still unverified live |
+| `POST /api/orders/payment-intent` | Creates the Order + Hyperswitch Payment Intent, with surcharge_details and a provisioned customer | Working — card confirm path verified live 2026-09-09; ACH blocked by merchant account config, see `TEST_CREDENTIALS.md` |
 | `GET /api/orders/:id` | Order status + receipt URL; force_syncs Hyperswitch while non-terminal | Working |
 | `GET /api/orders/:id/receipt` | Streams an itemized PDF receipt, rendered on demand | Working |
 | `POST /api/customers` | Idempotently provisions a Hyperswitch Customer for a student | Working |
@@ -206,9 +216,14 @@ project report for why.
 
 ## Outstanding before this doc is fully "Working" end to end
 
-1. Run one real sandbox card through the hosted-fields confirm flow and
-   confirm a `payment_id` with `succeeded`/`requires_capture` comes back, plus
-   one 3DS test card that forces `requires_customer_action`.
+1. ~~Run one real sandbox card through the hosted-fields confirm flow and
+   confirm a `payment_id` with `succeeded`/`requires_capture` comes back~~ —
+   done 2026-09-09 via direct REST call, see `TEST_CREDENTIALS.md`. Still
+   needed: the same thing through the actual browser `Hyper()` widget (to
+   verify the `on("change")` assumption in `apps/web/src/lib/hyperswitch.ts`),
+   plus one 3DS test card that forces `requires_customer_action`. Also: ACH
+   has no eligible connector on this merchant account at all — needs a
+   dashboard fix before it can be tested end to end.
 2. Trigger a real webhook delivery from the sandbox dashboard against the
    deployed `/api/webhooks/hyperswitch` URL, log the raw body and
    `x-webhook-signature-512` header pre-parse, and diff against the computed
