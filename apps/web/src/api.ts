@@ -3,6 +3,7 @@ import type {
   CreatePaymentIntentRequest,
   CreatePaymentIntentResponse,
   GetOrderResponse,
+  GetPaymentMethodsResponse,
   PriceCartRequest,
   PriceCartResponse,
   QuotePaymentRequest,
@@ -14,6 +15,14 @@ import type {
 // Every deploy target (local dev, staging, prod) points this at its own API
 // origin via VITE_API_BASE_URL — nothing in this file may hardcode a host.
 const BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// Some API responses (e.g. GetOrderResponse.receiptUrl) hand back a path
+// relative to the API, not a browser-navigable URL — web and api are
+// expected to be on different origins (Netlify + Render), so callers must
+// resolve those paths against the API's own base URL, not the page's.
+export function apiUrl(path: string): string {
+  return `${BASE_URL}${path}`;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!BASE_URL) {
@@ -51,4 +60,8 @@ export function quotePayment(body: QuotePaymentRequest): Promise<QuotePaymentRes
 
 export function getOrder(orderId: string): Promise<GetOrderResponse> {
   return request(`/orders/${orderId}`);
+}
+
+export function getPaymentMethods(studentId: string): Promise<GetPaymentMethodsResponse> {
+  return request(`/payment-methods?studentId=${encodeURIComponent(studentId)}`);
 }

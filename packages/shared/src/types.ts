@@ -147,3 +147,27 @@ export interface GetOrderResponse {
   order: Order;
   receiptUrl: string | null;
 }
+
+// --- Hyperswitch customer + saved payment methods (architecture §4) ---
+// One tokenized Hyperswitch Customer per student, reused every term, so a
+// saved card can be charged one-click without re-entering card data.
+
+export interface CreateCustomerRequest {
+  studentId: string;
+}
+
+export interface CreateCustomerResponse {
+  hyperswitchCustomerId: string;
+}
+
+export interface SavedPaymentMethod {
+  paymentMethodId: string;
+  brand: string; // e.g. "card"
+  last4: string;
+  expiryMonth: string;
+  expiryYear: string;
+}
+
+export interface GetPaymentMethodsResponse {
+  paymentMethods: SavedPaymentMethod[];
+}

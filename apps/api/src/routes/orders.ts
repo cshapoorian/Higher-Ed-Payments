@@ -9,9 +9,12 @@ import type {
 } from "@juspay-takehome/shared";
 import { db } from "../db.js";
 import { env } from "../env.js";
+import { asyncHandler } from "../lib/asyncHandler.js";
+import { ensureHyperswitchCustomer } from "../services/customer.js";
 import { quoteForMethod } from "../services/feeQuote.js";
 import { createPaymentIntent, getPaymentStatus } from "../services/hyperswitch.js";
 import { applyHyperswitchStatus } from "../services/orderStatus.js";
+import { streamReceiptPdf } from "../services/receipt.js";
 
 export const ordersRouter = Router();
 
@@ -25,29 +28,40 @@ export const ordersRouter = Router();
 // alternative — letting Hyperswitch compute this via its Surcharge Decision
 // Manager, exposed to the client SDK through GET /account/payment_methods —
 // isn't used here since the fee rule is simple enough to own directly.)
-ordersRouter.post("/orders/quote", async (req, res) => {
-  const { invoiceId, method } = req.body as QuotePaymentRequest;
+ordersRouter.post(
+  "/orders/quote",
+  asyncHandler(async (req, res) => {
+    const { invoiceId, method } = req.body as QuotePaymentRequest;
 
-  const invoice = await db.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
-  const quote = quoteForMethod(invoice.balanceDueCents, method);
+    const invoice = await db.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    const quote = quoteForMethod(invoice.balanceDueCents, method);
 
-  const response: QuotePaymentResponse = { quote };
-  res.json(response);
-});
+    const response: QuotePaymentResponse = { quote };
+    res.json(response);
+  }),
+);
 
 // Creates an Order + Hyperswitch Payment Intent scoped to the fee-inclusive
 // quote for the chosen method. Card data never touches this API — the client
 // confirms directly with Hyperswitch using the returned client secret.
 // See architecture §4 and §5 steps 3–4.
-ordersRouter.post("/orders/payment-intent", async (req, res) => {
+ordersRouter.post(
+  "/orders/payment-intent",
+  asyncHandler(async (req, res) => {
   const { invoiceId, method } = req.body as CreatePaymentIntentRequest;
 
   const invoice = await db.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
   const quote = quoteForMethod(invoice.balanceDueCents, method);
 
+  // A Hyperswitch Customer must exist before a payment can be tokenized for
+  // reuse — required for card_saved and for the mandate installment plans.
+  // See architecture §4 ("Tokenized Hyperswitch Customers").
+  const customerId = await ensureHyperswitchCustomer(invoice.studentId);
+
   const intent = await createPaymentIntent({
     amountCents: quote.totalCents,
     currency: "USD",
+    customerId,
     setupFutureUsage: method === "installment_plan" ? "off_session" : undefined,
     surcharge: quote.feeCents > 0 ? { surchargeAmountCents: quote.feeCents } : undefined,
   });
@@ -108,7 +122,8 @@ ordersRouter.post("/orders/payment-intent", async (req, res) => {
     quote,
   };
   res.json(response);
-});
+  }),
+);
 
 // Order state only advances on a verified Hyperswitch webhook (webhooks.ts),
 // never on the client's redirect/confirmPayment result — so after confirming
@@ -122,7 +137,9 @@ ordersRouter.post("/orders/payment-intent", async (req, res) => {
 // connector — exactly the gap that would otherwise show up as the client
 // polling forever on a payment that already resolved but whose webhook was
 // delayed or dropped.
-ordersRouter.get("/orders/:id", async (req, res) => {
+ordersRouter.get(
+  "/orders/:id",
+  asyncHandler(async (req, res) => {
   let record = await db.order.findUnique({
     where: { id: req.params.id },
     include: { receipt: true },
@@ -158,4 +175,16 @@ ordersRouter.get("/orders/:id", async (req, res) => {
     receiptUrl: record.receipt?.pdfUrl ?? null,
   };
   res.json(response);
-});
+  }),
+);
+
+// Renders and streams the itemized PDF receipt on demand — nothing is
+// written to disk, so this works the same whether this API's filesystem is
+// ephemeral (see deployment notes) or not. 404s until the order is Paid.
+ordersRouter.get(
+  "/orders/:id/receipt",
+  asyncHandler(async (req, res) => {
+    const found = await streamReceiptPdf(req.params.id, res);
+    if (!found) res.status(404).json({ error: "receipt not found" });
+  }),
+);

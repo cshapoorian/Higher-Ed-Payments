@@ -99,6 +99,31 @@ export async function createCustomer(params: CreateCustomerParams): Promise<Hype
   });
 }
 
+export interface HyperswitchSavedPaymentMethod {
+  payment_method_id: string;
+  payment_method: string; // e.g. "card"
+  card?: { last4_digits: string; expiry_month: string; expiry_year: string; card_holder_name?: string };
+}
+
+/**
+ * GET /customers/{customer_id}/payment_methods — the student's saved cards,
+ * server-side (secret key), so "Card ending 4242 (saved)" in the UI reflects
+ * a real saved method instead of a hardcoded option. Not to be confused with
+ * GET /account/payment_methods, which lists methods applicable to a specific
+ * payment via client_secret + publishable key for the client SDK — that one
+ * matters if this project ever adopts Hyperswitch's Surcharge Decision
+ * Manager instead of our own fee-quote logic. See ENDPOINTS.md.
+ */
+export async function listSavedPaymentMethods(
+  customerId: string,
+): Promise<HyperswitchSavedPaymentMethod[]> {
+  const res = await hyperswitchFetch<{ customer_payment_methods: HyperswitchSavedPaymentMethod[] }>(
+    `/customers/${customerId}/payment_methods`,
+    { method: "GET" },
+  );
+  return res.customer_payment_methods;
+}
+
 /**
  * Charges the next installment as a merchant-initiated transaction against a
  * saved mandate. See §4 ("Installments via saved-payment-method mandates").
