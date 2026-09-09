@@ -19,11 +19,31 @@ declare global {
   }
 }
 
+export interface BillingDetails {
+  name?: string;
+  email?: string;
+  address?: {
+    line1?: string;
+    line2?: string;
+    city?: string;
+    state?: string;
+    postal_code?: string;
+    country?: string;
+  };
+}
+
 export interface HyperInstance {
   elements: (options: { clientSecret: string }) => HyperElements;
   confirmPayment: (options: {
     elements: HyperElements;
-    confirmParams: { return_url: string };
+    confirmParams: {
+      return_url: string;
+      // Billing address (card) / account-holder name (ACH) collected as plain
+      // inputs here — neither is cardholder data, so it doesn't need to go
+      // through a hosted field. It rides alongside the hosted element's own
+      // (PAN/routing/account) payload straight to Hyperswitch.
+      payment_method_data?: { billing_details?: BillingDetails };
+    };
     redirect: "if_required" | "always";
   }) => Promise<{ status: string; error?: { message: string } }>;
 }
