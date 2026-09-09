@@ -2,6 +2,7 @@ import { Router } from "express";
 import type {
   CreatePaymentIntentRequest,
   CreatePaymentIntentResponse,
+  GetOrderResponse,
   Order,
   QuotePaymentRequest,
   QuotePaymentResponse,
@@ -96,6 +97,33 @@ ordersRouter.post("/orders/payment-intent", async (req, res) => {
     clientSecret: intent.client_secret,
     publishableKey: env.hyperswitch.publishableKey,
     quote,
+  };
+  res.json(response);
+});
+
+// Order state only advances on a verified Hyperswitch webhook (webhooks.ts),
+// never on the client's redirect/confirmPayment result — so after confirming
+// with Hyperswitch, the client polls here to learn the real terminal status.
+// See architecture §3, §5 step 6.
+ordersRouter.get("/orders/:id", async (req, res) => {
+  const record = await db.order.findUnique({
+    where: { id: req.params.id },
+    include: { receipt: true },
+  });
+  if (!record) return res.status(404).json({ error: "order not found" });
+
+  const order: Order = {
+    id: record.id,
+    invoiceId: record.invoiceId,
+    status: record.status as Order["status"],
+    paymentIntentId: record.paymentIntentId,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  };
+
+  const response: GetOrderResponse = {
+    order,
+    receiptUrl: record.receipt?.pdfUrl ?? null,
   };
   res.json(response);
 });

@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { PaymentMethodQuote, PaymentMethodType } from "@juspay-takehome/shared";
-import { createPaymentIntent, quotePayment } from "../api";
+import { createPaymentIntent, getOrder, quotePayment } from "../api";
 import { loadHyper, type HyperElements, type HyperInstance } from "../lib/hyperswitch";
 import { useCart } from "../state/CartContext";
+
+// How long to keep polling for the webhook-driven terminal status before
+// telling the student to check back later instead of spinning forever. ACH
+// in particular can sit in "processing" well past this window in the real
+// world — ample for the sandbox's near-instant test connectors.
+const ORDER_POLL_INTERVAL_MS = 2000;
+const ORDER_POLL_TIMEOUT_MS = 30000;
 
 interface MethodMeta {
   type: PaymentMethodType;
@@ -56,14 +63,15 @@ function formatShortDate(iso: string): string {
 // Payment Intent — card data never touches the storefront API. Order state
 // then advances via webhook, not this confirmation call. See architecture §5.
 export function PaymentPage() {
-  const { invoice, setOrder } = useCart();
+  const { invoice, order, setOrder } = useCart();
   const navigate = useNavigate();
 
   const [quotes, setQuotes] = useState<Partial<Record<PaymentMethodType, PaymentMethodQuote>>>({});
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodType | null>(null);
   const [hyperInstance, setHyperInstance] = useState<HyperInstance | null>(null);
   const [elements, setElements] = useState<HyperElements | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "processing" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "processing" | "paid" | "timeout" | "error">("idle");
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const cardMountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -97,6 +105,7 @@ export function PaymentPage() {
     setSelectedMethod(method);
     setElements(null);
     setHyperInstance(null);
+    setReceiptUrl(null);
     setStatus("loading");
     try {
       const { order, clientSecret, publishableKey } = await createPaymentIntent({
@@ -125,12 +134,38 @@ export function PaymentPage() {
         redirect: "if_required",
       });
       if (result.error) throw new Error(result.error.message);
-      // Terminal status is set by the webhook, not here — see architecture §5 step 6.
-      setStatus("idle");
+      // The Hyperswitch webhook, not this response, is what actually moves the
+      // order to Paid — see architecture §5 step 6. Poll our own API for that
+      // terminal status instead of trusting this client-side result.
+      await pollOrderStatus();
     } catch (err) {
       console.error(err);
       setStatus("error");
     }
+  }
+
+  async function pollOrderStatus() {
+    const orderId = order?.id;
+    if (!orderId) return;
+
+    const deadline = Date.now() + ORDER_POLL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const { order: latest, receiptUrl: latestReceiptUrl } = await getOrder(orderId);
+      setOrder(latest);
+      if (latest.status === "paid") {
+        setReceiptUrl(latestReceiptUrl);
+        setStatus("paid");
+        return;
+      }
+      if (latest.status === "failed") {
+        setStatus("error");
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, ORDER_POLL_INTERVAL_MS));
+    }
+    // Webhook hasn't landed within our patience window — tell the student to
+    // check back rather than spinning the "Processing…" state indefinitely.
+    setStatus("timeout");
   }
 
   const selectedQuote = selectedMethod ? quotes[selectedMethod] : undefined;
@@ -144,7 +179,7 @@ export function PaymentPage() {
       <button
         key={m.type}
         className={`card method-card ${isSelected ? "is-selected" : ""}`}
-        disabled={status === "processing"}
+        disabled={status === "processing" || status === "paid"}
         onClick={() => selectMethod(m.type)}
       >
         <div className="method-card-top">
@@ -200,7 +235,7 @@ export function PaymentPage() {
         <div id="hyper-card-element" ref={cardMountRef} />
       )}
 
-      {selectedMethod && (
+      {selectedMethod && status !== "paid" && (
         <div className="pay-confirm">
           <button
             className="btn btn-primary btn-block"
@@ -216,7 +251,29 @@ export function PaymentPage() {
         </div>
       )}
 
-      {status === "processing" && <div className="status-banner processing">Processing your payment…</div>}
+      {status === "processing" && (
+        <div className="status-banner processing">
+          Processing your payment — waiting for confirmation from Hyperswitch…
+        </div>
+      )}
+      {status === "paid" && (
+        <div className="status-banner success">
+          Payment received.{" "}
+          {receiptUrl ? (
+            <a href={receiptUrl} target="_blank" rel="noreferrer">
+              View your receipt
+            </a>
+          ) : (
+            "Your receipt is being generated."
+          )}
+        </div>
+      )}
+      {status === "timeout" && (
+        <div className="status-banner processing" role="status">
+          Still confirming with your bank or card issuer — this can take a few minutes for ACH. Check back on this
+          order shortly; you don't need to pay again.
+        </div>
+      )}
       {status === "error" && (
         <div className="status-banner error" role="alert">
           Payment failed — please try again or choose a different method.

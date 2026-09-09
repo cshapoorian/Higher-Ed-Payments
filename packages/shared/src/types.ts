@@ -137,3 +137,13 @@ export interface QuotePaymentRequest {
 export interface QuotePaymentResponse {
   quote: PaymentMethodQuote;
 }
+
+// --- Order status polling (architecture §3, §5 step 6) ---
+// Order state only advances on a verified Hyperswitch webhook, never on
+// client redirect — so the client polls this after confirming a payment to
+// learn the real terminal status instead of assuming success.
+
+export interface GetOrderResponse {
+  order: Order;
+  receiptUrl: string | null;
+}

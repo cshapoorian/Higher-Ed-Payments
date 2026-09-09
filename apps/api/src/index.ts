@@ -9,7 +9,11 @@ import { webhooksRouter } from "./routes/webhooks.js";
 
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    origin: env.corsOrigin === "*" ? true : env.corsOrigin.split(",").map((o) => o.trim()),
+  }),
+);
 
 // Webhook route needs the raw body for signature verification, so it gets
 // express.raw() scoped to just that path — everything else uses express.json().
