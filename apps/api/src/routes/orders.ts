@@ -10,13 +10,21 @@ import type {
 import { db } from "../db.js";
 import { env } from "../env.js";
 import { quoteForMethod } from "../services/feeQuote.js";
-import { createPaymentIntent } from "../services/hyperswitch.js";
+import { createPaymentIntent, getPaymentStatus } from "../services/hyperswitch.js";
+import { applyHyperswitchStatus } from "../services/orderStatus.js";
 
 export const ordersRouter = Router();
 
 // Server-computed fee quote for a given method — ACH free, card/installment
 // surcharged. The client renders this and only this; it never derives a
 // total client-side. See architecture §2, §4.
+//
+// This never calls Hyperswitch — quoteForMethod is our own pricing logic.
+// The quote's feeCents is what gets handed to POST /orders/payment-intent
+// below as Hyperswitch's surcharge_details.surcharge_amount. (The
+// alternative — letting Hyperswitch compute this via its Surcharge Decision
+// Manager, exposed to the client SDK through GET /account/payment_methods —
+// isn't used here since the fee rule is simple enough to own directly.)
 ordersRouter.post("/orders/quote", async (req, res) => {
   const { invoiceId, method } = req.body as QuotePaymentRequest;
 
@@ -41,6 +49,7 @@ ordersRouter.post("/orders/payment-intent", async (req, res) => {
     amountCents: quote.totalCents,
     currency: "USD",
     setupFutureUsage: method === "installment_plan" ? "off_session" : undefined,
+    surcharge: quote.feeCents > 0 ? { surchargeAmountCents: quote.feeCents } : undefined,
   });
 
   const record = await db.order.upsert({
@@ -105,11 +114,34 @@ ordersRouter.post("/orders/payment-intent", async (req, res) => {
 // never on the client's redirect/confirmPayment result — so after confirming
 // with Hyperswitch, the client polls here to learn the real terminal status.
 // See architecture §3, §5 step 6.
+//
+// While the order is still non-terminal, this also force_syncs directly
+// against GET /payments/{id}?force_sync=true and reconciles through the same
+// path the webhook uses. Without force_sync=true a status check can return
+// Hyperswitch's last-known cached value instead of a live check with the
+// connector — exactly the gap that would otherwise show up as the client
+// polling forever on a payment that already resolved but whose webhook was
+// delayed or dropped.
 ordersRouter.get("/orders/:id", async (req, res) => {
-  const record = await db.order.findUnique({
+  let record = await db.order.findUnique({
     where: { id: req.params.id },
     include: { receipt: true },
   });
+  if (!record) return res.status(404).json({ error: "order not found" });
+
+  const isTerminal = record.status === "paid" || record.status === "failed";
+  const paymentIntentId = record.paymentIntentId;
+  if (!isTerminal && paymentIntentId) {
+    try {
+      const live = await getPaymentStatus(paymentIntentId);
+      await applyHyperswitchStatus(paymentIntentId, live.status, live.mandate_id);
+      record = await db.order.findUnique({ where: { id: req.params.id }, include: { receipt: true } });
+    } catch (err) {
+      // Hyperswitch unreachable or not yet configured — fall back to our
+      // last webhook-derived status rather than fail the poll outright.
+      console.error(`force_sync failed for payment ${paymentIntentId}:`, err);
+    }
+  }
   if (!record) return res.status(404).json({ error: "order not found" });
 
   const order: Order = {

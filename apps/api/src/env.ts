@@ -16,6 +16,8 @@ export const env = {
     baseUrl: required("HYPERSWITCH_BASE_URL", "https://sandbox.hyperswitch.io"),
     secretKey: process.env.HYPERSWITCH_SECRET_KEY ?? "",
     publishableKey: process.env.HYPERSWITCH_PUBLISHABLE_KEY ?? "",
-    webhookSecret: process.env.HYPERSWITCH_WEBHOOK_SECRET ?? "",
+    // Dashboard: Developer → Payment Settings → Webhooks. Signs outgoing
+    // webhooks; see verifyWebhookSignature in services/hyperswitch.ts.
+    paymentResponseHashKey: process.env.HYPERSWITCH_PAYMENT_RESPONSE_HASH_KEY ?? "",
   },
 };
