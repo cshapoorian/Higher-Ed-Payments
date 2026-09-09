@@ -12,6 +12,10 @@ export const env = {
   // (e.g. "https://storefront.example.edu"). Unset/"*" allows any origin,
   // which is fine for local dev but should be locked down in production.
   corsOrigin: process.env.CORS_ORIGIN ?? "*",
+  // Shared secret an external scheduler (Render Cron Job, GitHub Actions
+  // cron, etc.) must present to POST /api/installments/run-due — this API
+  // doesn't run its own background scheduler. Empty disables the route.
+  cronSecret: process.env.CRON_SECRET ?? "",
   hyperswitch: {
     baseUrl: required("HYPERSWITCH_BASE_URL", "https://sandbox.hyperswitch.io"),
     secretKey: process.env.HYPERSWITCH_SECRET_KEY ?? "",

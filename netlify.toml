@@ -1,0 +1,30 @@
+# Netlify config for apps/web (the storefront SPA). Deploy by connecting
+# this repo in the Netlify dashboard and pointing it at this file — no
+# manual build settings needed there.
+#
+# The storefront API (apps/api) does NOT deploy from this file — it goes to
+# Render separately; see render.yaml at the repo root.
+#
+# Required env vars — set these in Netlify's dashboard under Site
+# configuration -> Environment variables (there is no secret data here, but
+# Vite bakes them into the build at build time, not runtime — see the
+# deployment notes: changing either of these requires a rebuild, not just a
+# redeploy):
+#   VITE_API_BASE_URL       e.g. https://juspay-takehome-api.onrender.com/api
+#   VITE_HYPERSWITCH_SDK_URL  e.g. https://sandbox.hyperswitch.io/v1/HyperLoader.js
+
+[build]
+  command = "npm ci && npm run build --workspace packages/shared && npm run build --workspace apps/web"
+  publish = "apps/web/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# apps/web uses React Router client-side routing (Courses / Review /
+# Payment). Without this, a hard refresh or direct link to /review or
+# /payment 404s, since those paths don't exist as static files — Netlify
+# needs to always serve index.html and let the client router take over.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

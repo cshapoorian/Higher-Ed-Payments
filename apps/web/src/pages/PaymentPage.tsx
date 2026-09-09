@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { PaymentMethodQuote, PaymentMethodType } from "@juspay-takehome/shared";
-import { createPaymentIntent, getOrder, quotePayment } from "../api";
+import type { PaymentMethodQuote, PaymentMethodType, SavedPaymentMethod } from "@juspay-takehome/shared";
+import { apiUrl, createPaymentIntent, getMe, getOrder, getPaymentMethods, quotePayment } from "../api";
 import { loadHyper, type HyperElements, type HyperInstance } from "../lib/hyperswitch";
 import { useCart } from "../state/CartContext";
 
@@ -20,14 +20,7 @@ interface MethodMeta {
   group: "Self-pay" | "Payment plan";
 }
 
-const METHODS: MethodMeta[] = [
-  {
-    type: "card_saved",
-    label: "Card ending 4242",
-    hint: "Saved on file — one click, no re-entry",
-    icon: "💳",
-    group: "Self-pay",
-  },
+const ALWAYS_AVAILABLE_METHODS: MethodMeta[] = [
   {
     type: "card_new",
     label: "New card",
@@ -51,6 +44,22 @@ const METHODS: MethodMeta[] = [
   },
 ];
 
+// "Card ending 4242 (saved)" is only ever shown when GET /api/payment-methods
+// actually returns a saved Hyperswitch payment method for this student — see
+// ENDPOINTS.md. Note this still confirms through the same hosted-fields flow
+// as "New card" today; a true one-click charge against the stored token
+// would need a separate confirm path and isn't wired up (see the report at
+// the end of this work for why).
+function savedCardMethod(saved: SavedPaymentMethod): MethodMeta {
+  return {
+    type: "card_saved",
+    label: `Card ending ${saved.last4}`,
+    hint: "Saved on file — no re-entry needed",
+    icon: "💳",
+    group: "Self-pay",
+  };
+}
+
 function formatUsd(cents: number): string {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
@@ -72,7 +81,19 @@ export function PaymentPage() {
   const [elements, setElements] = useState<HyperElements | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "processing" | "paid" | "timeout" | "error">("idle");
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [savedMethod, setSavedMethod] = useState<SavedPaymentMethod | null>(null);
   const cardMountRef = useRef<HTMLDivElement>(null);
+
+  const METHODS = useMemo<MethodMeta[]>(
+    () => (savedMethod ? [savedCardMethod(savedMethod), ...ALWAYS_AVAILABLE_METHODS] : ALWAYS_AVAILABLE_METHODS),
+    [savedMethod],
+  );
+
+  useEffect(() => {
+    getMe().then(({ student }) =>
+      getPaymentMethods(student.id).then((res) => setSavedMethod(res.paymentMethods[0] ?? null)),
+    );
+  }, []);
 
   useEffect(() => {
     if (!invoice) return;
@@ -87,7 +108,7 @@ export function PaymentPage() {
     return () => {
       cancelled = true;
     };
-  }, [invoice]);
+  }, [invoice, METHODS]);
 
   useEffect(() => {
     if (selectedMethod === "card_new" && elements && cardMountRef.current) {
@@ -260,7 +281,7 @@ export function PaymentPage() {
         <div className="status-banner success">
           Payment received.{" "}
           {receiptUrl ? (
-            <a href={receiptUrl} target="_blank" rel="noreferrer">
+            <a href={apiUrl(receiptUrl)} target="_blank" rel="noreferrer">
               View your receipt
             </a>
           ) : (

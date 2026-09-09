@@ -1,0 +1,61 @@
+# Render Blueprint for the storefront API (apps/api). Deploy with "New +" →
+# "Blueprint" in the Render dashboard, pointed at this repo.
+#
+# The web SPA (apps/web) does NOT deploy from this file — it goes to Netlify
+# separately; see netlify.toml at the repo root.
+#
+# READ BEFORE DEPLOYING — this is one of the things flagged for a decision:
+# apps/api uses SQLite via Prisma. Render's Free web service tier cannot
+# attach a persistent disk at all, and Free services spin down after 15
+# minutes idle — without a disk, every idle→wake cycle (or redeploy) starts
+# from an EMPTY database, wiping every student/order/payment recorded so
+# far. The "starter" plan + disk below is the zero-code-change fix (keeps
+# SQLite, just gives it a durable mount); the alternative is migrating to
+# Render's managed Postgres (also has a free tier, but it expires 30 days
+# after creation) instead of a disk. Neither is applied silently — pick one
+# before relying on this in front of anyone.
+services:
+  - name: juspay-takehome-api
+    type: web
+    runtime: node
+    plan: starter
+    buildCommand: >-
+      npm ci &&
+      npm run build --workspace packages/shared &&
+      npm run prisma:generate --workspace apps/api &&
+      npm run build --workspace apps/api
+    startCommand: npm run prisma:deploy --workspace apps/api && node apps/api/dist/index.js
+    healthCheckPath: /api/health
+    disk:
+      name: api-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      # SQLite path lives on the persistent disk mounted above, not the
+      # service's own ephemeral filesystem.
+      - key: DATABASE_URL
+        value: file:/data/dev.db
+      # Set this once you know your Netlify site's URL(s) — comma-separated,
+      # no trailing slash, e.g. https://your-site.netlify.app. Until this is
+      # set correctly the web app's API calls will be blocked by CORS. To
+      # also allow that site's Netlify deploy-preview/branch subdomains, add
+      # "*--your-site.netlify.app" (suffix match, not literal exact-match).
+      - key: CORS_ORIGIN
+        sync: false
+      - key: HYPERSWITCH_BASE_URL
+        value: https://sandbox.hyperswitch.io
+      - key: HYPERSWITCH_SECRET_KEY
+        sync: false
+      - key: HYPERSWITCH_PUBLISHABLE_KEY
+        sync: false
+      # Dashboard: Developer -> Payment Settings -> Webhooks -> "Payment
+      # response hash key". Also this is where you register this service's
+      # public URL + /api/webhooks/hyperswitch once you know it.
+      - key: HYPERSWITCH_PAYMENT_RESPONSE_HASH_KEY
+        sync: false
+      # Only needed if you wire up a scheduler for
+      # POST /api/installments/run-due — see ENDPOINTS.md. Render can
+      # generate this for you; whatever calls that endpoint needs the same
+      # value in its own x-cron-secret header.
+      - key: CRON_SECRET
+        generateValue: true

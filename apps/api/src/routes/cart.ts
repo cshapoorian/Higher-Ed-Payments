@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Invoice, PriceCartRequest, PriceCartResponse } from "@juspay-takehome/shared";
 import { db } from "../db.js";
+import { asyncHandler } from "../lib/asyncHandler.js";
 import { priceCart } from "../services/pricing.js";
 
 export const cartRouter = Router();
@@ -8,7 +9,7 @@ export const cartRouter = Router();
 // The client sends selected course sections; the server returns the itemized
 // invoice and balance due. These are the numbers later charged — the client
 // never supplies an amount. See architecture §4 and §5 step 2.
-cartRouter.post("/cart/price", async (req, res) => {
+cartRouter.post("/cart/price", asyncHandler(async (req, res) => {
   const { studentId, termId, courseSectionIds } = req.body as PriceCartRequest;
 
   const { lineItems, balanceDueCents } = await priceCart(courseSectionIds);
@@ -28,4 +29,4 @@ cartRouter.post("/cart/price", async (req, res) => {
 
   const response: PriceCartResponse = { invoice };
   res.json(response);
-});
+}));

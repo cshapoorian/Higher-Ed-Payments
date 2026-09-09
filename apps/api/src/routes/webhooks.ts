@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { asyncHandler } from "../lib/asyncHandler.js";
 import { verifyWebhookSignature } from "../services/hyperswitch.js";
 import { applyHyperswitchStatus } from "../services/orderStatus.js";
 
@@ -10,7 +11,9 @@ export const webhooksRouter = Router();
 // NOTE: mounted with express.raw() in index.ts so req.body is the raw Buffer
 // needed for signature verification — it must be hashed byte-for-byte as
 // received, not re-serialized from a parsed object.
-webhooksRouter.post("/hyperswitch", async (req, res) => {
+webhooksRouter.post(
+  "/hyperswitch",
+  asyncHandler(async (req, res) => {
   const rawBody = req.body as Buffer;
   const verified = verifyWebhookSignature(rawBody, {
     signature512: req.header("x-webhook-signature-512"),
@@ -29,4 +32,5 @@ webhooksRouter.post("/hyperswitch", async (req, res) => {
   if (!order) return res.status(404).json({ error: "order not found" });
 
   res.json({ received: true });
-});
+  }),
+);
