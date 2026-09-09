@@ -1,0 +1,91 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.steps {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+  font-weight: 600;
+}
+
+.steps a {
+  color: inherit;
+  text-decoration: none;
+  opacity: 0.5;
+}
+
+.steps a.active {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.section-list,
+.line-items {
+  list-style: none;
+  padding: 0;
+}
+
+.section-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #ddd;
+}
+
+.line-items li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.35rem 0;
+}
+
+.line-items li.credit {
+  color: #2a8f4d;
+}
+
+.balance-due {
+  display: flex;
+  justify-content: space-between;
+  font-size: 1.2rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 2px solid #333;
+}
+
+.nav-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2rem;
+}
+
+.method-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.method-list button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.method-list button span {
+  font-size: 0.85rem;
+  opacity: 0.7;
+}

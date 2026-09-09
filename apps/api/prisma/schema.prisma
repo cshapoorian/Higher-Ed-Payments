@@ -1,0 +1,105 @@
+// Data model per project-description-architecture.md §5:
+// Student · Term · Invoice (line items incl. aid credit, computed balance_due) ·
+// Order · Payment (Hyperswitch payment_id, method, status, amount) ·
+// InstallmentPlan (mandate_id + schedule) · Receipt.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Student {
+  id                    String  @id @default(cuid())
+  name                  String
+  email                 String  @unique
+  hyperswitchCustomerId String?
+
+  invoices Invoice[]
+
+  createdAt DateTime @default(now())
+}
+
+model Term {
+  id      String   @id @default(cuid())
+  label   String
+  dueDate DateTime
+
+  invoices Invoice[]
+}
+
+model CourseSection {
+  id           String @id @default(cuid())
+  code         String
+  title        String
+  credits      Int
+  tuitionCents Int
+}
+
+model Invoice {
+  id              String   @id @default(cuid())
+  studentId       String
+  termId          String
+  // JSON-encoded InvoiceLineItem[] (see packages/shared): tuition, fees, aid
+  // credits. SQLite has no native Json type in Prisma, so this is a string.
+  lineItems       String
+  balanceDueCents Int
+  createdAt       DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id])
+  term    Term    @relation(fields: [termId], references: [id])
+  order   Order?
+}
+
+// SQLite has no native enum support in Prisma; OrderStatus/PaymentMethodType/
+// PaymentStatus are enforced as string unions at the TS layer (packages/shared)
+// instead.
+model Order {
+  id              String   @id @default(cuid())
+  invoiceId       String   @unique
+  status          String   @default("draft") // OrderStatus
+  paymentIntentId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invoice         Invoice          @relation(fields: [invoiceId], references: [id])
+  payments        Payment[]
+  installmentPlan InstallmentPlan?
+  receipt         Receipt?
+}
+
+model Payment {
+  id                   String   @id @default(cuid())
+  orderId              String
+  hyperswitchPaymentId String
+  method               String // PaymentMethodType
+  status               String // PaymentStatus
+  amountCents          Int
+  createdAt            DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+model InstallmentPlan {
+  id                String @id @default(cuid())
+  orderId           String @unique
+  mandateId         String
+  installmentCount  Int
+  intervalDays      Int
+  // JSON-encoded InstallmentScheduleEntry[] (see packages/shared).
+  schedule          String
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+model Receipt {
+  id       String   @id @default(cuid())
+  orderId  String   @unique
+  pdfUrl   String
+  issuedAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+}
