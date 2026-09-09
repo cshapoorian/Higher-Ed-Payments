@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { PaymentMethodQuote, PaymentMethodType, SavedPaymentMethod } from "@juspay-takehome/shared";
+import type { PaymentMethodQuote, PaymentMethodType, SavedPaymentMethod, Term } from "@juspay-takehome/shared";
 import { apiUrl, createPaymentIntent, getMe, getOrder, getPaymentMethods, quotePayment } from "../api";
 import { loadHyper, type HyperElements, type HyperInstance } from "../lib/hyperswitch";
 import { useCart } from "../state/CartContext";
@@ -15,33 +15,12 @@ const ORDER_POLL_TIMEOUT_MS = 30000;
 interface MethodMeta {
   type: PaymentMethodType;
   label: string;
-  hint: string;
-  icon: string;
-  group: "Self-pay" | "Payment plan";
 }
 
 const ALWAYS_AVAILABLE_METHODS: MethodMeta[] = [
-  {
-    type: "card_new",
-    label: "New card",
-    hint: "Hosted fields — card data never touches our server",
-    icon: "➕",
-    group: "Self-pay",
-  },
-  {
-    type: "ach",
-    label: "Bank transfer (ACH)",
-    hint: "Funds move directly from your bank account",
-    icon: "🏦",
-    group: "Self-pay",
-  },
-  {
-    type: "installment_plan",
-    label: "Split into 4 payments",
-    hint: "Merchant-financed plan, charged automatically every 30 days",
-    icon: "📆",
-    group: "Payment plan",
-  },
+  { type: "card_new", label: "New card" },
+  { type: "ach", label: "Bank transfer (ACH)" },
+  { type: "installment_plan", label: "Split into 4 payments" },
 ];
 
 // "Card ending 4242 (saved)" is only ever shown when GET /api/payment-methods
@@ -51,13 +30,7 @@ const ALWAYS_AVAILABLE_METHODS: MethodMeta[] = [
 // would need a separate confirm path and isn't wired up (see the report at
 // the end of this work for why).
 function savedCardMethod(saved: SavedPaymentMethod): MethodMeta {
-  return {
-    type: "card_saved",
-    label: `Card ending ${saved.last4}`,
-    hint: "Saved on file — no re-entry needed",
-    icon: "💳",
-    group: "Self-pay",
-  };
+  return { type: "card_saved", label: `Card ending ${saved.last4} (saved)` };
 }
 
 function formatUsd(cents: number): string {
@@ -82,7 +55,13 @@ export function PaymentPage() {
   const [status, setStatus] = useState<"idle" | "loading" | "processing" | "paid" | "timeout" | "error">("idle");
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [savedMethod, setSavedMethod] = useState<SavedPaymentMethod | null>(null);
+  const [term, setTerm] = useState<Term | null>(null);
+  // Only card_new and ach mount a field-collection widget below; both start
+  // false so Confirm stays disabled until the student has actually entered
+  // something. card_saved/installment_plan never gate on this.
+  const [fieldsComplete, setFieldsComplete] = useState(false);
   const cardMountRef = useRef<HTMLDivElement>(null);
+  const needsFieldEntry = selectedMethod === "card_new" || selectedMethod === "ach";
 
   const METHODS = useMemo<MethodMeta[]>(
     () => (savedMethod ? [savedCardMethod(savedMethod), ...ALWAYS_AVAILABLE_METHODS] : ALWAYS_AVAILABLE_METHODS),
@@ -90,9 +69,10 @@ export function PaymentPage() {
   );
 
   useEffect(() => {
-    getMe().then(({ student }) =>
-      getPaymentMethods(student.id).then((res) => setSavedMethod(res.paymentMethods[0] ?? null)),
-    );
+    getMe().then(({ student, term }) => {
+      setTerm(term);
+      getPaymentMethods(student.id).then((res) => setSavedMethod(res.paymentMethods[0] ?? null));
+    });
   }, []);
 
   useEffect(() => {
@@ -111,10 +91,16 @@ export function PaymentPage() {
   }, [invoice, METHODS]);
 
   useEffect(() => {
-    if (selectedMethod === "card_new" && elements && cardMountRef.current) {
-      elements.create("card").mount("#hyper-card-element");
-    }
-  }, [selectedMethod, elements]);
+    setFieldsComplete(false);
+    if (!needsFieldEntry || !elements || !cardMountRef.current) return;
+    // ach mounts the general-purpose "payment" element (bank-account fields);
+    // card_new mounts the dedicated "card" element. Neither collects anything
+    // until the student types into it, and Confirm stays disabled until the
+    // "change" event below reports complete: true.
+    const el = elements.create(selectedMethod === "card_new" ? "card" : "payment");
+    el.mount("#hyper-payment-element");
+    el.on("change", (event) => setFieldsComplete(Boolean(event.complete)));
+  }, [selectedMethod, elements, needsFieldEntry]);
 
   if (!invoice) {
     navigate("/review");
@@ -147,6 +133,7 @@ export function PaymentPage() {
 
   async function confirm() {
     if (!elements || !hyperInstance) return;
+    if (needsFieldEntry && !fieldsComplete) return;
     setStatus("processing");
     try {
       const result = await hyperInstance.confirmPayment({
@@ -190,8 +177,7 @@ export function PaymentPage() {
   }
 
   const selectedQuote = selectedMethod ? quotes[selectedMethod] : undefined;
-  const selfPayMethods = METHODS.filter((m) => m.group === "Self-pay");
-  const planMethods = METHODS.filter((m) => m.group === "Payment plan");
+  const invoiceNumber = invoice!.id.slice(-6).toUpperCase();
 
   function renderMethodCard(m: MethodMeta) {
     const quote = quotes[m.type];
@@ -205,21 +191,15 @@ export function PaymentPage() {
       >
         <div className="method-card-top">
           <div className="method-card-label">
-            <span className="method-icon" aria-hidden="true">
-              {m.icon}
-            </span>
-            <div>
-              <div className="method-name">{m.label}</div>
-              <div className="method-hint">{m.hint}</div>
-            </div>
+            <div className="method-name">{m.label}</div>
           </div>
           <div className="method-card-amount">
-            <strong>{quote ? formatUsd(quote.totalCents) : formatUsd(invoice!.balanceDueCents)}</strong>
-            {quote && (
-              <span className={`fee-pill ${quote.feeCents === 0 ? "free" : "surcharge"}`}>
-                {quote.feeCents === 0 ? "No fee" : `+${formatUsd(quote.feeCents)} fee`}
-              </span>
+            {quote?.feeCents === 0 ? (
+              <strong>No fee</strong>
+            ) : (
+              <strong>{quote ? formatUsd(quote.totalCents) : formatUsd(invoice!.balanceDueCents)}</strong>
             )}
+            {quote && quote.feeCents > 0 && <span className="fee-pill surcharge">+{formatUsd(quote.feeCents)} fee</span>}
           </div>
         </div>
 
@@ -242,33 +222,59 @@ export function PaymentPage() {
     <div>
       <div className="page-head">
         <span className="eyebrow">Step 3 of 3</span>
-        <h1>Choose how to pay</h1>
+        <h1>Payment</h1>
         <p>ACH is free. Card payments — including the installment plan — carry a processing fee, shown up front.</p>
       </div>
 
-      <div className="method-section-label">{selfPayMethods[0].group}</div>
-      <div className="method-list">{selfPayMethods.map(renderMethodCard)}</div>
+      <div className="invoice-eyebrow">
+        Invoice — {term ? term.label.toUpperCase() : ""} · #{invoiceNumber}
+      </div>
+      <div className="card invoice-recap">
+        <ul className="line-items">
+          {invoice!.lineItems.map((item, i) => (
+            <li key={i} className={item.kind === "aid_credit" ? "credit" : undefined}>
+              <span>{item.description}</span>
+              <span>{formatUsd(item.amountCents)}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="invoice-divider" />
+        <div className="balance-due">
+          <span className="label">Balance due</span>
+          <span className="amount">{formatUsd(invoice!.balanceDueCents)}</span>
+        </div>
+        <p className="balance-note">Full line-item detail is on the review step.</p>
+      </div>
 
-      <div className="method-section-label">{planMethods[0].group}</div>
-      <div className="method-list">{planMethods.map(renderMethodCard)}</div>
+      <a className="finaid-link" href="mailto:financialaid@meridian.edu">
+        Apply financial aid or link student aid account →
+      </a>
 
-      {selectedMethod === "card_new" && (
-        <div id="hyper-card-element" ref={cardMountRef} />
-      )}
+      <div className="trust-badges">
+        <span className="badge-pill">256-bit encrypted</span>
+        <span className="badge-pill">PCI-DSS compliant</span>
+        <span className="badge-pill">FERPA-safe</span>
+      </div>
+
+      <div className="method-section-label">Payment method</div>
+      <div className="method-list">{METHODS.map(renderMethodCard)}</div>
+
+      {needsFieldEntry && <div id="hyper-payment-element" ref={cardMountRef} />}
 
       {selectedMethod && status !== "paid" && (
         <div className="pay-confirm">
           <button
             className="btn btn-primary btn-block"
-            disabled={status !== "idle" || !elements || !hyperInstance}
+            disabled={status !== "idle" || !elements || !hyperInstance || (needsFieldEntry && !fieldsComplete)}
             onClick={confirm}
           >
             {status === "processing"
               ? "Processing…"
               : status === "loading"
                 ? "Preparing…"
-                : `Pay ${selectedQuote ? formatUsd(selectedQuote.totalCents) : ""}`}
+                : `Confirm & pay ${selectedQuote ? formatUsd(selectedQuote.totalCents) : ""}`}
           </button>
+          <p className="pay-footnote">Refund & cancellation policy · Itemized PDF receipt</p>
         </div>
       )}
 

@@ -25,25 +25,23 @@ export function App() {
               <span className="brand-mark">Meridian University</span>
               <span className="brand-sub">Student Financial Services</span>
             </div>
-            <ol className="stepper">
+            <nav className="breadcrumb" aria-label="Checkout steps">
               {STEPS.map((step, i) => {
                 const isCurrent = i === currentIndex;
-                const isDone = currentIndex >= 0 && i < currentIndex;
                 return (
-                  <li key={step.path}>
+                  <span key={step.path} className="breadcrumb-item">
+                    {i > 0 && <span className="breadcrumb-sep">—</span>}
                     <NavLink
                       to={step.path}
                       end={step.path === "/"}
-                      className={`step-link ${isCurrent ? "is-current" : ""} ${isDone ? "is-done" : ""}`}
+                      className={`breadcrumb-link ${isCurrent ? "is-current" : ""}`}
                     >
-                      <span className="step-index">{isDone ? "✓" : i + 1}</span>
                       {step.label}
                     </NavLink>
-                    {i < STEPS.length - 1 && <span className="step-connector" />}
-                  </li>
+                  </span>
                 );
               })}
-            </ol>
+            </nav>
           </div>
         </header>
         <main className="shell-main">
