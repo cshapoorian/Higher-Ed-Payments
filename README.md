@@ -2,7 +2,9 @@
 
 Higher-ed tuition storefront (Courses → Review → Payment) integrated against
 the Hyperswitch sandbox. See [`project-description-architecture.md`](./project-description-architecture.md)
-for the full design rationale — read it before making structural changes.
+for the full design rationale — read it before making structural changes, and
+[`ENDPOINTS.md`](./ENDPOINTS.md) for which API routes exist today versus what
+still needs to be built.
 
 ## Layout
 
@@ -37,6 +39,15 @@ npm run --workspace apps/api seed             # seeds a student, term, course se
 npm run dev:api   # http://localhost:4000
 npm run dev:web   # http://localhost:5173
 ```
+
+## Hosting elsewhere
+
+Both apps read their integration points from env vars, not hardcoded hosts:
+`apps/web` calls the API at `VITE_API_BASE_URL`, and `apps/api` accepts
+browser requests only from the origin(s) in `CORS_ORIGIN` (comma-separated;
+defaults to `*` for local dev). Point both at your deployed API host when
+hosting the SPA and API separately, and lock `CORS_ORIGIN` down to the SPA's
+real origin once it has one.
 
 ## Status
 

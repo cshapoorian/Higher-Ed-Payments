@@ -745,6 +745,16 @@ button {
   color: var(--danger);
 }
 
+.status-banner.success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.status-banner a {
+  color: inherit;
+  font-weight: 600;
+}
+
 .saved-badge {
   font-size: 0.6875rem;
   font-weight: 700;

@@ -2,6 +2,7 @@ import type {
   CourseSection,
   CreatePaymentIntentRequest,
   CreatePaymentIntentResponse,
+  GetOrderResponse,
   PriceCartRequest,
   PriceCartResponse,
   QuotePaymentRequest,
@@ -10,9 +11,14 @@ import type {
   Term,
 } from "@juspay-takehome/shared";
 
+// Every deploy target (local dev, staging, prod) points this at its own API
+// origin via VITE_API_BASE_URL — nothing in this file may hardcode a host.
 const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (!BASE_URL) {
+    throw new Error("VITE_API_BASE_URL is not set — see apps/web/.env.example");
+  }
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,
@@ -41,4 +47,8 @@ export function createPaymentIntent(
 
 export function quotePayment(body: QuotePaymentRequest): Promise<QuotePaymentResponse> {
   return request("/orders/quote", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function getOrder(orderId: string): Promise<GetOrderResponse> {
+  return request(`/orders/${orderId}`);
 }
