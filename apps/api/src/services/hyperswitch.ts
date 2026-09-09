@@ -3,10 +3,13 @@ import { env } from "../env.js";
 
 // Thin wrapper around the Hyperswitch REST API (v1).
 // Docs: https://docs.hyperswitch.io/api-reference
-// TODO: confirm exact request/response shapes against the sandbox once
-// HYPERSWITCH_SECRET_KEY is provisioned — this is scaffolding, not verified
-// against a live call yet. See ENDPOINTS.md for the endpoint-by-endpoint
-// mapping this file implements.
+//
+// createPaymentIntent is verified against the live sandbox (2026-09-09): a
+// real intent created here confirms to succeeded on the fauxpay connector.
+// Still unverified against real traffic: verifyWebhookSignature, which needs
+// an actual webhook delivery to confirm our raw-body HMAC matches theirs.
+// See ENDPOINTS.md for the endpoint-by-endpoint mapping this file implements
+// and TEST_CREDENTIALS.md for what was exercised.
 
 async function hyperswitchFetch<T>(path: string, init: RequestInit): Promise<T> {
   const res = await fetch(`${env.hyperswitch.baseUrl}${path}`, {

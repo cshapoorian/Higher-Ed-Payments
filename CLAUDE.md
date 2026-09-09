@@ -33,5 +33,10 @@ Copy `apps/api/.env.example` → `apps/api/.env` and `apps/web/.env.example` →
 
 ## Gotchas
 
-- Order status flips to `Paid` only on a verified Hyperswitch webhook (`apps/api/src/routes/webhooks.ts`), never on client redirect — don't "fix" payment confirmation by trusting a client-side redirect.
-- `apps/api/src/services/hyperswitch.ts` (Payment Intent creation) is verified against a live Hyperswitch sandbox call as of 2026-09-09. `apps/web/src/lib/hyperswitch.ts` (hosted-fields client SDK) and the incoming webhook signature path are still unverified live — don't assume they're correct as written until exercised against a real client confirmation / webhook delivery.
+- Order status flips to `Paid` only on server-to-server confirmation from Hyperswitch — its verified webhook (`apps/api/src/routes/webhooks.ts`), or the API's own `force_sync` check in `GET /orders/:id`. Never on the client's redirect or `confirmPayment` result; don't "fix" payment confirmation by trusting either.
+- The Hyperswitch client SDK does **not** emit a Stripe-style `change` event with `{ complete }` — only `ready`, `focus`, `blur` (verified live 2026-09-09). Don't reintroduce a Pay button gated on field completeness; it can never become enabled. Validity comes from `confirmPayment` rejecting, and that message is surfaced to the student.
+- The SDK loads from `beta.hyperswitch.io`, not `sandbox.hyperswitch.io` — the latter serves the REST API but 404s on `HyperLoader.js`. See `apps/web/.env.example`.
+- ACH is deliberately disabled at the Pay button (`achUnavailable` in `PaymentPage.tsx`): no bank-debit connector is enabled on this merchant profile, so confirm returns `IR_39`. Don't "enable" it in code — it needs a Hyperswitch dashboard change. Equally, don't mount the unified `payment` element for ACH: on this account it renders a *card* form under a bank-transfer heading.
+- The installment plan is knowingly incomplete: the intent is created for the full balance (not the first installment) and no mandate is requested, so payments 2–4 never fire. The UI discloses this. If you finish it, fix both halves together — see `ENDPOINTS.md` → "Unfinished inside what's built".
+- The incoming webhook signature path is still unverified against a real delivery — don't assume it's correct as written until exercised.
+- `npm run typecheck` / `npm run build` fail on a fresh clone until the Prisma client is generated; run `npm run prisma:generate` (or `prisma:migrate`) first.

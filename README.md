@@ -33,6 +33,12 @@ npm run prisma:migrate                        # creates apps/api/prisma/dev.db
 npm run --workspace apps/api seed             # seeds a student, term, course sections
 ```
 
+`prisma:migrate` also generates the Prisma client, which `apps/api` needs to
+typecheck. If you run `npm run typecheck` or `npm run build` on a fresh clone
+*before* migrating, it fails on missing Prisma types — run
+`npm run prisma:generate` first. (`render.yaml` already does this in its build
+step.)
+
 ## Run
 
 ```bash
@@ -58,20 +64,38 @@ pick up their build/start config automatically. Both files have inline
 comments on the required env vars and known tradeoffs; **read the comment
 block at the top of `render.yaml` before deploying** — it covers a real
 data-loss gap (SQLite + Render's free tier) rather than just applying a fix
-silently. The full list of things worth deciding on together before/after
-first deploy is in the project handoff notes (ask if you don't have them);
-short version: SQLite persistence on Render, no scheduler is wired up yet for
-the installment auto-charge endpoint, and Render's free-tier cold starts can
-delay webhook delivery.
+silently. Three things are worth deciding on before relying on a deploy:
+SQLite persistence on Render (see that comment block), the fact that no
+scheduler is wired up yet for the installment auto-charge endpoint
+(`POST /api/installments/run-due` expects to be called by external cron —
+see [`ENDPOINTS.md`](./ENDPOINTS.md)), and Render's free-tier cold starts,
+which can delay webhook delivery enough to matter.
 
 ## Status
 
-This is a scaffold: routes and data model are wired end-to-end. As of
-2026-09-09, `POST /api/orders/payment-intent` has been verified against a
-live Hyperswitch sandbox call (`apps/api/src/services/hyperswitch.ts`) —
-real keys create a real Payment Intent with the expected `payment_id` /
-`client_secret` shape. Still unverified: the client-side hosted-fields
-confirmation (`apps/web/src/lib/hyperswitch.ts`, `window.Hyper` global and
-Elements API) and the incoming webhook path, which needs either a completed
-client-side payment or a tunnel (e.g. ngrok) so Hyperswitch can reach this
-machine. See architecture doc §3 for what's intentionally built vs. deferred.
+**Card payments work end to end against the live Hyperswitch sandbox.** As of
+2026-09-09, both halves are verified: `POST /api/orders/payment-intent`
+creates a real Payment Intent server-side, and the browser SDK
+(`apps/web/src/lib/hyperswitch.ts`) mounts a real hosted card element and
+confirms it — `4242…` succeeds on the `fauxpay` connector, the decline card
+returns `DC_08`. Order state then advances only on server-to-server
+confirmation, and a paid order produces an itemized PDF receipt.
+
+Two methods are built but cannot complete a payment yet, and both say so in
+the UI rather than failing silently:
+
+- **ACH** — no bank-debit connector is enabled on this merchant profile, so
+  confirming returns `IR_39`. It's a dashboard fix, not a code change; see
+  [`TEST_CREDENTIALS.md`](./TEST_CREDENTIALS.md).
+- **The 4-payment installment plan** — the intent is created for the full
+  balance rather than the first installment, and the first charge doesn't
+  request a mandate, so payments 2–4 are never taken. Selecting it charges
+  the whole balance today and the page says so.
+
+Still unverified: the incoming webhook signature path, which needs a real
+delivery from the dashboard against a publicly reachable URL (a tunnel such
+as ngrok stands in during development). Order status still resolves without
+it, via the API's own `force_sync` reconciliation.
+
+See architecture doc §3 for what's intentionally built vs. deferred, and
+[`ENDPOINTS.md`](./ENDPOINTS.md) for the route-by-route state.

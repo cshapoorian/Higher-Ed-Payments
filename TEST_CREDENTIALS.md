@@ -56,9 +56,12 @@ None of the four connectors wired to this profile (`fauxpay`,
 debit — only card. **To fix:** in the Hyperswitch Dashboard, under this
 business profile's payment methods / connector settings, enable a bank-debit
 connector for ACH (or turn on ACH for one of the existing test connectors,
-if that's exposed there). Until that's done, selecting "Bank transfer
-(ACH)" in the storefront will always fail at confirm — this is a dashboard
-configuration gap, not a bug in `apps/web` or `apps/api`.
+if that's exposed there). This is a dashboard configuration gap, not a bug in
+`apps/web` or `apps/api`. Until it's fixed, the storefront disables the ACH
+method outright — the Pay button reads "ACH unavailable on this account" and
+a notice explains why — rather than letting a student fill in a form that
+cannot succeed. Re-enabling is a one-line change in
+`apps/web/src/pages/PaymentPage.tsx` (`achUnavailable`).
 
 Routing `110000000` / account `000123456789` are the standard Stripe-style
 ACH test values and are the first thing to try once a connector is actually
@@ -66,19 +69,35 @@ enabled for it — but treat them as unverified until then.
 
 ## Notes
 
-- These fields are collected entirely inside Hyperswitch's hosted card
-  element — never typed into our own API. Confirm stays disabled until the
-  element reports the field as complete (see
-  `apps/web/src/pages/PaymentPage.tsx`), so nothing is sent to Hyperswitch
-  until you've actually filled the card in and clicked **Confirm & pay**.
-- This verification used the REST confirm call directly (same auth —
-  publishable key + client_secret — the browser SDK uses), not the actual
-  `Hyper()` JS widget in a browser. So: the card number/decline behavior and
-  the ACH configuration gap above are confirmed against the real account;
-  whether `apps/web/src/lib/hyperswitch.ts`'s assumed `elements.create(...).on("change", ...)`
-  event actually fires the way Stripe.js's does is still unverified — that
-  needs an actual click-through in the browser.
-- "Card ending 4242 (saved)" in the UI reflects a real saved Hyperswitch
-  payment method for the seeded student, created the first time the New
-  card success case above is confirmed through the real storefront UI — it
-  isn't a hardcoded row.
+- Card number, expiry and CVC are collected entirely inside Hyperswitch's
+  hosted card element — never typed into our own API. **Pay is not gated on
+  card completeness**, because the SDK gives us no way to observe it (next
+  note); it gates on the hosted iframe having painted and on our own billing
+  fields being filled. An incomplete card is caught by `confirmPayment`
+  rejecting, and that message is surfaced to the student.
+- **The browser widget is now verified live too** (2026-09-09, against
+  `https://beta.hyperswitch.io/v1/HyperLoader.js` — note the SDK is served
+  from a different host than the REST API, which 404s on that path).
+  Confirmed: the global really is `window.Hyper`, and
+  `elements.create("card")` mounts one iframe holding card number, MM/YY and
+  CVC, whose fields accept input. Also confirmed, and the reason the
+  Pay-button gating changed: the element emits **`ready`, `focus` and `blur`
+  only** — there is no Stripe-style `change` event carrying `{ complete }`.
+  Gating Pay on one left the button disabled forever.
+- Routing and account numbers for ACH are ordinary labelled inputs, not a
+  hosted element. That's deliberate: bank data sits outside PCI's
+  cardholder-data scope, and it still goes from the browser to Hyperswitch
+  rather than through our API. Mounting Hyperswitch's unified `payment`
+  element there was tried and reverted — on this account it renders a *card*
+  form, which under a "Link your bank" heading would invite someone to type
+  card data into what they believe is a bank transfer.
+- **"Card ending 4242 (saved)" will not appear yet.** The option reads from a
+  real Hyperswitch customer lookup rather than a hardcoded row, so it only
+  renders when a saved method actually exists — but card payments don't set
+  `setup_future_usage`, so nothing is tokenized through the ordinary flow and
+  the lookup comes back empty. See architecture doc §3, "Saved-card reuse".
+- **The installment plan charges the full balance today.** The intent is
+  created for the whole amount rather than the first installment, and no
+  mandate is stored, so payments 2–4 are never taken. The payment page says
+  so on selection. Use "New card" unless you're specifically exercising the
+  plan's pricing.
