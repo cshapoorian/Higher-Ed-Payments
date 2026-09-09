@@ -628,9 +628,37 @@ button {
   gap: var(--space-3);
 }
 
+.method-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-sm);
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: var(--text-base);
+}
+
+.method-card.is-selected .method-icon {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
 .method-name {
   font-size: var(--text-base);
   font-weight: 600;
+}
+
+.method-hint {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  margin-top: 0.15rem;
+}
+
+.method-card.is-selected .method-hint {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .method-card-amount {
@@ -711,13 +739,205 @@ button {
   color: var(--text-faint);
 }
 
-#hyper-payment-element {
-  margin-top: var(--space-4);
+/* ---------------------------------------------------------------------- */
+/* Payment page — card / bank detail panels                                */
+/* ---------------------------------------------------------------------- */
+.pay-panel {
+  margin-top: var(--space-5);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.pay-panel h3 {
+  font-size: var(--text-sm);
+  font-family: var(--font-body);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.card-brand-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.brand-badge {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.4rem;
+}
+
+.panel-subheader {
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-3);
+}
+
+.panel-hint {
+  margin: var(--space-1) 0 var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.panel-microcopy {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.hosted-field-shell {
   padding: var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
   min-height: 3rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3) var(--space-4);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.form-field.span-2 {
+  grid-column: span 2;
+}
+
+.form-field em {
+  font-weight: 400;
+  font-style: normal;
+  color: var(--text-faint);
+}
+
+.form-field input,
+.form-field select {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.7rem;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.form-field input:focus,
+.form-field select:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+.bank-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.bank-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), color var(--transition-fast);
+}
+
+.bank-tile:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.bank-tile.is-selected {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 1px var(--brand);
+  color: var(--brand-strong);
+}
+
+.bank-tile-mark {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.segmented {
+  display: inline-flex;
+  margin-top: var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.segmented button {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: none;
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border-strong);
+}
+
+.segmented button.is-active {
+  background: var(--brand);
+  color: #fff;
+}
+
+.pay-panel .hosted-field-shell {
+  margin-top: var(--space-4);
+}
+
+@media (max-width: 640px) {
+  .form-grid,
+  .bank-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-field.span-2 {
+    grid-column: span 1;
+  }
 }
 
 .status-banner {
