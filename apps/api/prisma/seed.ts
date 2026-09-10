@@ -3,6 +3,16 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
+  // Render's free plan has no persistent disk, so the SQLite file is wiped
+  // on every idle→wake cycle — this runs on every boot (see render.yaml's
+  // startCommand), so it must no-op once data already exists rather than
+  // erroring on the next warm restart.
+  const alreadySeeded = await prisma.courseSection.count();
+  if (alreadySeeded > 0) {
+    console.log("Database already has data, skipping seed.");
+    return;
+  }
+
   const term = await prisma.term.create({
     data: { label: "Fall 2026", dueDate: new Date("2026-09-15") },
   });

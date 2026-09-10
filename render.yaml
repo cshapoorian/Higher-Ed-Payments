@@ -14,6 +14,11 @@
 # something like /data and point DATABASE_URL at file:/data/dev.db), or
 # migrate to Render's managed Postgres (has its own free tier, but it
 # expires 30 days after creation).
+#
+# Because of the wipe above, startCommand reseeds (course sections, a demo
+# student/term) on every boot, not just first deploy — otherwise the
+# storefront has nothing to show after every idle→wake. prisma/seed.ts
+# no-ops if data already exists, so this is safe on a warm restart too.
 services:
   - name: juspay-takehome-api
     type: web
@@ -24,7 +29,10 @@ services:
       npm run build --workspace packages/shared &&
       npm run prisma:generate --workspace apps/api &&
       npm run build --workspace apps/api
-    startCommand: npm run prisma:deploy --workspace apps/api && node apps/api/dist/index.js
+    startCommand: >-
+      npm run prisma:deploy --workspace apps/api &&
+      npm run --workspace apps/api seed &&
+      node apps/api/dist/index.js
     healthCheckPath: /api/health
     envVars:
       # Ephemeral — lives on the service's own filesystem, wiped on every
