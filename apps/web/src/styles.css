@@ -382,6 +382,9 @@ button {
 .course-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .course-code {
@@ -394,13 +397,11 @@ button {
 .course-title {
   font-size: var(--text-base);
   font-weight: 500;
-  margin-top: 0.1rem;
 }
 
 .course-meta {
   font-size: var(--text-xs);
   color: var(--text-faint);
-  margin-top: 0.2rem;
 }
 
 .course-price {
