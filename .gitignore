@@ -9,6 +9,12 @@ apps/api/prisma/dev.db
 apps/api/prisma/dev.db-journal
 apps/api/generated/
 
+# each dir under here has its own .git file, which makes `git add -A`
+# from the main checkout commit it as a broken submodule (gitlink) instead
+# of ignoring it — breaks clones on CI/hosts that don't have a .gitmodules
+# entry for it (e.g. Netlify)
+.claude/worktrees/
+
 # internal documentation - not for the public remote
 /*.md
 !/README.md
