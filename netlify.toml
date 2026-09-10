@@ -11,7 +11,9 @@
 # deployment notes: changing either of these requires a rebuild, not just a
 # redeploy):
 #   VITE_API_BASE_URL       e.g. https://juspay-takehome-api.onrender.com/api
-#   VITE_HYPERSWITCH_SDK_URL  e.g. https://sandbox.hyperswitch.io/v1/HyperLoader.js
+#   VITE_HYPERSWITCH_SDK_URL  e.g. https://beta.hyperswitch.io/v1/HyperLoader.js
+#   (the SDK is only served from beta.hyperswitch.io — sandbox.hyperswitch.io
+#   serves the REST API but 404s on HyperLoader.js)
 
 [build]
   command = "npm ci && npm run build --workspace packages/shared && npm run build --workspace apps/web"

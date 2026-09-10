@@ -48,6 +48,11 @@ services:
         sync: false
       - key: HYPERSWITCH_PUBLISHABLE_KEY
         sync: false
+      # Dashboard: Settings -> the merchant_id shown there. Not a secret;
+      # used only by GET /api/payment-capabilities to report ACH
+      # availability accurately. Leave unset and it falls back to "unknown".
+      - key: HYPERSWITCH_MERCHANT_ID
+        sync: false
       # Dashboard: Developer -> Payment Settings -> Webhooks -> "Payment
       # response hash key". Also this is where you register this service's
       # public URL + /api/webhooks/hyperswitch once you know it.
