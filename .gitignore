@@ -8,3 +8,7 @@ build/
 apps/api/prisma/dev.db
 apps/api/prisma/dev.db-journal
 apps/api/generated/
+
+# internal documentation - not for the public remote
+/*.md
+!/README.md
