@@ -12,7 +12,7 @@ import { env } from "../env.js";
 import { asyncHandler } from "../lib/asyncHandler.js";
 import { ensureHyperswitchCustomer } from "../services/customer.js";
 import { quoteForMethod } from "../services/feeQuote.js";
-import { createPaymentIntent, getPaymentStatus } from "../services/hyperswitch.js";
+import { createPaymentIntent, getPaymentStatus, type MandateDataParams } from "../services/hyperswitch.js";
 import { applyHyperswitchStatus } from "../services/orderStatus.js";
 import { streamReceiptPdf } from "../services/receipt.js";
 
@@ -90,12 +90,39 @@ ordersRouter.post(
   // See architecture §4 ("Tokenized Hyperswitch Customers").
   const customerId = await ensureHyperswitchCustomer(invoice.studentId);
 
+  // The installment plan's first charge is a CIT that also has to request a
+  // mandate — setup_future_usage alone tokenizes the card but does not ask
+  // Hyperswitch for a mandate_id, which is why payments 2-N never had
+  // anything to charge against (see architecture §3). It's charged for just
+  // the first installment's amount, not the whole balance; the remaining
+  // installments are the same fixed amount (feeQuote.ts only puts the
+  // rounding remainder on the first entry), so that amount also becomes the
+  // mandate's multi-use cap.
+  const isInstallmentPlan = method === "installment_plan";
+  const firstChargeCents =
+    isInstallmentPlan && quote.installmentSchedule ? quote.installmentSchedule[0].amountCents : quote.totalCents;
+  const mandateData: MandateDataParams | undefined =
+    isInstallmentPlan && quote.installmentSchedule
+      ? {
+          customerAcceptance: {
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") ?? undefined,
+            acceptedAt: new Date().toISOString(),
+          },
+          multiUseAmountCents: Math.max(
+            ...quote.installmentSchedule.slice(1).map((entry) => entry.amountCents),
+          ),
+          currency: "USD",
+        }
+      : undefined;
+
   const intent = await createPaymentIntent({
-    amountCents: quote.totalCents,
+    amountCents: firstChargeCents,
     currency: "USD",
     customerId,
-    setupFutureUsage: method === "installment_plan" ? "off_session" : undefined,
+    setupFutureUsage: isInstallmentPlan ? "off_session" : undefined,
     surcharge: quote.feeCents > 0 ? { surchargeAmountCents: quote.feeCents } : undefined,
+    mandateData,
   });
 
   const record = await db.order.upsert({
@@ -117,11 +144,11 @@ ordersRouter.post(
       hyperswitchPaymentId: intent.payment_id,
       method,
       status: "requires_confirmation",
-      amountCents: quote.totalCents,
+      amountCents: firstChargeCents,
     },
   });
 
-  if (method === "installment_plan" && quote.installmentSchedule) {
+  if (isInstallmentPlan && quote.installmentSchedule) {
     await db.installmentPlan.upsert({
       where: { orderId: record.id },
       create: {

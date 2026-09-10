@@ -592,16 +592,20 @@ export function PaymentPage() {
               <span className="brand-badge">Discover</span>
             </div>
           </div>
-          {/* Truthful copy, not the copy we'd like to be true: the intent is
-              created for quote.totalCents and no mandate is stored, so this
-              charges the whole balance now. Saying "$X today, rest later"
-              here would be a straightforward misrepresentation. */}
+          {/* Truthful copy, not the copy we'd like to be true: the first
+              charge below now requests and stores a mandate, so payments
+              2-N are chargeable, but nothing calls POST
+              /api/installments/run-due on a schedule in this environment —
+              no cron/scheduler is deployed (see render.yaml). Saying "we'll
+              bill you automatically" without that piece running would be a
+              misrepresentation. */}
           {selectedMethod === "installment_plan" && selectedQuote?.installmentSchedule && (
             <div className="notice notice-warn" role="status">
-              <strong>This charges the full {formatUsd(selectedQuote.totalCents)} today.</strong> The schedule above is
-              what a mandate-backed plan would collect, but recurring collection isn't wired up yet — no mandate is
-              stored and payments 2–{selectedQuote.installmentSchedule.length} are never taken. Use “New card” unless
-              you're specifically exercising the plan's pricing.
+              <strong>This charges {formatUsd(selectedQuote.installmentSchedule[0].amountCents)} today</strong> (installment
+              1 of {selectedQuote.installmentSchedule.length}) and stores a mandate for the rest. Payments 2–
+              {selectedQuote.installmentSchedule.length} are chargeable against that mandate via{" "}
+              <code>POST /api/installments/run-due</code>, but this demo doesn't run a scheduler that calls it
+              automatically — they won't be collected unless that endpoint is triggered by hand or by a cron job.
             </div>
           )}
           {/* The hosted element below renders the card number, expiration, and

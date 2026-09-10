@@ -48,6 +48,30 @@ export interface CreatePaymentIntentParams {
    * surcharge computed server-side by Hyperswitch. See ENDPOINTS.md.
    */
   surcharge?: SurchargeDetails;
+  /**
+   * Requests a reusable mandate alongside this payment — required for the
+   * installment plan's first (CIT) charge to actually get a mandate_id back.
+   * setup_future_usage alone only tokenizes the payment method; it does not
+   * ask Hyperswitch for a mandate on its own, which is why
+   * InstallmentPlan.mandateId was always null before this. See architecture
+   * §4 ("Installments via saved-payment-method mandates").
+   */
+  mandateData?: MandateDataParams;
+}
+
+export interface MandateDataParams {
+  customerAcceptance: {
+    ipAddress?: string;
+    userAgent?: string;
+    acceptedAt: string;
+  };
+  /**
+   * Cents. Caps each future merchant-initiated charge against this mandate.
+   * Installments 2..N are a known, fixed amount (see feeQuote.ts), so this is
+   * set to exactly that rather than left uncapped.
+   */
+  multiUseAmountCents: number;
+  currency: string;
 }
 
 export interface HyperswitchPaymentIntent {
@@ -61,6 +85,15 @@ export interface HyperswitchPaymentIntent {
  * server-computed balance, with confirm: false so it comes back in
  * requires_payment_method rather than attempting to charge immediately.
  * See architecture §4 ("Server-authoritative Payment Intents").
+ *
+ * mandate_data's field names (customer_acceptance.acceptance_type/
+ * accepted_at/online.ip_address/online.user_agent, mandate_type.multi_use)
+ * are confirmed against Hyperswitch's live OpenAPI reference, 2026-09-09
+ * (api-reference.hyperswitch.io/v1/payments/payments--create) for the
+ * customer_acceptance and single_use shapes; multi_use's shape is inferred
+ * from that same MandateAmountData structure (amount + currency), not
+ * independently confirmed live — verify a real mandate_id comes back once
+ * this runs against the sandbox.
  */
 export async function createPaymentIntent(
   params: CreatePaymentIntentParams,
@@ -75,6 +108,24 @@ export async function createPaymentIntent(
       confirm: false,
       surcharge_details: params.surcharge
         ? { surcharge_amount: params.surcharge.surchargeAmountCents }
+        : undefined,
+      mandate_data: params.mandateData
+        ? {
+            customer_acceptance: {
+              acceptance_type: "online",
+              accepted_at: params.mandateData.customerAcceptance.acceptedAt,
+              online: {
+                ip_address: params.mandateData.customerAcceptance.ipAddress,
+                user_agent: params.mandateData.customerAcceptance.userAgent,
+              },
+            },
+            mandate_type: {
+              multi_use: {
+                amount: params.mandateData.multiUseAmountCents,
+                currency: params.mandateData.currency,
+              },
+            },
+          }
         : undefined,
     }),
   });
