@@ -18,3 +18,4 @@ apps/api/generated/
 # internal documentation - not for the public remote
 /*.md
 !/README.md
+!/FAKE_CREDENTIALS.md
