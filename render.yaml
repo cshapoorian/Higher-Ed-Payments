@@ -4,21 +4,21 @@
 # The web SPA (apps/web) does NOT deploy from this file — it goes to Netlify
 # separately; see netlify.toml at the repo root.
 #
-# READ BEFORE DEPLOYING — this is one of the things flagged for a decision:
-# apps/api uses SQLite via Prisma. Render's Free web service tier cannot
-# attach a persistent disk at all, and Free services spin down after 15
-# minutes idle — without a disk, every idle→wake cycle (or redeploy) starts
-# from an EMPTY database, wiping every student/order/payment recorded so
-# far. The "starter" plan + disk below is the zero-code-change fix (keeps
-# SQLite, just gives it a durable mount); the alternative is migrating to
-# Render's managed Postgres (also has a free tier, but it expires 30 days
-# after creation) instead of a disk. Neither is applied silently — pick one
-# before relying on this in front of anyone.
+# DELIBERATE TRADEOFF: this runs on Render's Free plan, which cannot attach
+# a persistent disk. apps/api uses SQLite via Prisma, so every idle→wake
+# cycle (Free services spin down after 15 minutes idle) or redeploy starts
+# from an EMPTY database — every student/order/payment recorded so far is
+# wiped. Fine for a demo/take-home reviewer to click through fresh each
+# time; not fine for anything meant to persist data. To keep data, either
+# move to the "starter" plan and add a disk (zero code change — mount
+# something like /data and point DATABASE_URL at file:/data/dev.db), or
+# migrate to Render's managed Postgres (has its own free tier, but it
+# expires 30 days after creation).
 services:
   - name: juspay-takehome-api
     type: web
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: >-
       npm ci &&
       npm run build --workspace packages/shared &&
@@ -26,15 +26,12 @@ services:
       npm run build --workspace apps/api
     startCommand: npm run prisma:deploy --workspace apps/api && node apps/api/dist/index.js
     healthCheckPath: /api/health
-    disk:
-      name: api-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
-      # SQLite path lives on the persistent disk mounted above, not the
-      # service's own ephemeral filesystem.
+      # Ephemeral — lives on the service's own filesystem, wiped on every
+      # idle→wake or redeploy. See the note above; this is the free-tier
+      # tradeoff, not a bug.
       - key: DATABASE_URL
-        value: file:/data/dev.db
+        value: file:./dev.db
       # Set this once you know your Netlify site's URL(s) — comma-separated,
       # no trailing slash, e.g. https://your-site.netlify.app. Until this is
       # set correctly the web app's API calls will be blocked by CORS. To
